@@ -1,7 +1,8 @@
 import assert from 'node:assert'
 import { argv } from 'node:process'
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { readPackageJson } from './files'
 import { packagePrePublishChecks } from './package-pre-publish-checks'
 import { preparePieceDistForPublish } from '../../../packages/cli/src/lib/utils/prepare-piece-utils'
@@ -62,6 +63,16 @@ function assertNoUnpublishableDeps(packageJsonPath: string): void {
   }
 }
 
+function copyPackageDocs({ path, outputPath }: { path: string, outputPath: string }): string[] {
+  const docs = readdirSync(path).filter((file) =>
+    /^((readme|changelog)(\.[a-z-]+)?\.md|licen[cs]e(\.(md|txt))?)$/i.test(file) && statSync(join(path, file)).isFile(),
+  )
+  for (const file of docs) {
+    copyFileSync(join(path, file), join(outputPath, file))
+  }
+  return docs
+}
+
 export const publishNpmPackage = async (path: string): Promise<void> => {
   console.info(`[publishPackage] path=${path}`)
   assert(path, '[publishPackage] parameter "path" is required')
@@ -85,8 +96,10 @@ export const publishNpmPackage = async (path: string): Promise<void> => {
   // manifest before it resolves would see the un-stripped deps and fail the assertion below.
   await preparePieceDistForPublish(path)
 
+  const docs = copyPackageDocs({ path, outputPath })
   const json = JSON.parse(readFileSync(`${outputPath}/package.json`).toString())
   json.version = version
+  json.files = [...(json.files ?? []), ...docs]
   writeFileSync(`${outputPath}/package.json`, JSON.stringify(json, null, 2))
 
   assertNoUnpublishableDeps(`${outputPath}/package.json`)

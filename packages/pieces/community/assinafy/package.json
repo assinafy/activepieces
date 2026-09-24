@@ -1,0 +1,45 @@
+{
+  "name": "@assinafy/piece-assinafy",
+  "version": "0.1.0",
+  "description": "Activepieces piece for Assinafy electronic signatures.",
+  "license": "MIT",
+  "author": "Assinafy",
+  "homepage": "https://github.com/assinafy/activepieces/tree/main/packages/pieces/community/assinafy#readme",
+  "bugs": {
+    "url": "https://github.com/assinafy/activepieces/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/assinafy/activepieces.git",
+    "directory": "packages/pieces/community/assinafy"
+  },
+  "keywords": [
+    "activepieces",
+    "assinafy",
+    "e-signature",
+    "assinatura-eletronica"
+  ],
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.lib.json && cp package.json dist/",
+    "bundle": "node ../../../../dist/packages/cli/src/index.js pieces bundle",
+    "lint": "eslint 'src/**/*.ts' 'test/**/*.ts'",
+    "typecheck": "tsc -p tsconfig.spec.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:live": "ASSINAFY_LIVE=1 vitest run test/live.test.ts",
+    "licenses": "node scripts/bundled-licenses.mjs"
+  },
+  "dependencies": {
+    "@activepieces/pieces-common": "workspace:*",
+    "@activepieces/pieces-framework": "workspace:*",
+    "form-data": "4.0.6",
+    "tslib": "2.6.2"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "3.2.6",
+    "esbuild": "0.28.1",
+    "vitest": "3.2.6"
+  }
+}
