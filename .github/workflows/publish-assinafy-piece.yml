@@ -22,9 +22,6 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v5
 
-      - name: Fetch main for the pre-publish check
-        run: git fetch --depth=1 origin main:refs/remotes/origin/main
-
       - name: Setup nodejs
         uses: actions/setup-node@v6
         with:
@@ -32,33 +29,26 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Check that the tag matches the piece version
         if: github.event_name == 'push'
         run: |
-          VERSION=$(node -p "require('./packages/pieces/community/assinafy/package.json').version")
+          VERSION=$(node -p "require('./package.json').version")
           if [ "$GITHUB_REF_NAME" != "piece-assinafy-v$VERSION" ]; then
             echo "Tag $GITHUB_REF_NAME does not match the piece version $VERSION."
             exit 1
           fi
 
-      - name: Build the piece
-        run: npx turbo run build --filter=@assinafy/piece-assinafy
-
       - name: Typecheck and test the piece
-        working-directory: packages/pieces/community/assinafy
         run: |
-          npx tsc -p tsconfig.spec.json
-          npx vitest run
+          npm run typecheck
+          npm test
+
+      - name: Build the piece
+        run: npm run build
 
       - name: Publish to npm with trusted publishing
-        run: npm run publish-piece assinafy
-        env:
-          TS_NODE_TRANSPILE_ONLY: 'true'
+        working-directory: dist
+        run: npm publish --access public
