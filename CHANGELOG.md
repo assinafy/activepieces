@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- The package's homepage, repository and issue links point to https://github.com/assinafy/activepieces.
+
 ## 0.1.0
 
 First release.
