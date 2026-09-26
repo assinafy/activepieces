@@ -134,12 +134,13 @@ describe('API key connection', () => {
 });
 
 describe('OAuth connection', () => {
-  test('uses Assinafy authorization with PKCE, client secret in the body and the needed scopes', () => {
+  test('uses Assinafy authorization with PKCE, the API resource, client secret in the body and the needed scopes', () => {
     expect(oauth.type).toBe(PropertyType.OAUTH2);
     expect(oauth.authUrl).toBe('https://auth.assinafy.com.br/oauth/authorize');
     expect(oauth.tokenUrl).toBe('https://api.assinafy.com.br/v1/oauth/token');
     expect(oauth.pkce).toBe(true);
     expect(oauth.pkceMethod).toBe('S256');
+    expect(oauth.extra).toEqual({ resource: 'https://api.assinafy.com.br' });
     expect(oauth.authorizationMethod).toBe('BODY');
     expect(oauth.scope).toEqual([
       'documents:read',
@@ -150,6 +151,11 @@ describe('OAuth connection', () => {
       'webhooks:write',
       'offline_access',
     ]);
+  });
+
+  test('describes the sliding 30-day refresh, not a monthly reconnect', () => {
+    expect(oauth.description).toContain('30 days without use');
+    expect(oauth.description).not.toMatch(/monthly|after approval/);
   });
 
   test('labels the connection with the consented workspace', async () => {

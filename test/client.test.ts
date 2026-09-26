@@ -209,10 +209,16 @@ describe('redirects', () => {
       'https://storage.example.com/signed.pdf?sig=abc'
     );
     expect(sentRequests()[1].headers).toBeUndefined();
+  });
+
+  test('refuses a redirect to an address without HTTPS', async () => {
     redirectTo('http://api.assinafy.com.br/v1/x');
-    replyData({});
-    await client.request({ method: HttpMethod.GET, path: '/x' });
-    expect(sentRequests()[3].headers).toBeUndefined();
+    await expect(
+      client.request({ method: HttpMethod.GET, path: '/x' })
+    ).rejects.toThrow(
+      'Assinafy API error (HTTP 302): the request was redirected to an address without HTTPS, which is not followed.'
+    );
+    expect(sentRequests()).toHaveLength(1);
   });
 
   test('refuses to follow a redirect of a write and stops redirect loops', async () => {
@@ -423,6 +429,22 @@ describe('errors', () => {
     await expect(
       client.request({ method: HttpMethod.GET, path: '/x' })
     ).rejects.toThrow('boom');
+  });
+
+  test('shows why a connection failed, such as a TLS handshake error, and does not retry', async () => {
+    sendRequest.mockRejectedValueOnce(
+      new TypeError('fetch failed', {
+        cause: new Error('ssl_choose_client_version:unsupported protocol'),
+      })
+    );
+    const error = await client
+      .request({ method: HttpMethod.GET, path: '/x' })
+      .catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(AssinafyApiError);
+    expect((error as Error).message).toBe(
+      'fetch failed: ssl_choose_client_version:unsupported protocol'
+    );
+    expect(sendRequest).toHaveBeenCalledTimes(1);
   });
 
   test('warns that a write cut off by the network may have been processed', async () => {

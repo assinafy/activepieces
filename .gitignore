@@ -3,3 +3,5 @@ dist/
 coverage/
 .activepieces/
 .claude/settings.local.json
+AGENTS.md
+CLAUDE.md

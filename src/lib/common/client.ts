@@ -94,7 +94,14 @@ async function send<T extends HttpMessageBody>({
         message: `Assinafy API error (HTTP ${response.status}): the request was redirected, which is only followed for downloads and reads.`,
       });
     }
-    url = new URL(location, url).toString();
+    const next = new URL(location, url);
+    if (next.protocol !== 'https:') {
+      throw new AssinafyApiError({
+        status: response.status,
+        message: `Assinafy API error (HTTP ${response.status}): the request was redirected to an address without HTTPS, which is not followed.`,
+      });
+    }
+    url = next.toString();
     queryParams = undefined;
   }
   throw new AssinafyApiError({
@@ -120,7 +127,7 @@ async function call<T>({
       message: 'Assinafy returned an empty response.',
     });
   }
-  return response.body.data;
+  return data;
 }
 
 async function callOptional<T>({
@@ -331,7 +338,13 @@ function compactQuery(
 
 async function toAssinafyError(error: unknown): Promise<Error> {
   if (!(error instanceof HttpError)) {
-    return error instanceof Error ? error : new Error(String(error));
+    const failure = error instanceof Error ? error : new Error(String(error));
+    // fetch reports TLS, DNS and connection failures as "fetch failed", with the reason as the cause.
+    return failure.cause instanceof Error
+      ? new Error(`${failure.message}: ${failure.cause.message}`, {
+          cause: failure,
+        })
+      : failure;
   }
   const { status, body } = error.response;
   const parsed = await parseJson(body);
@@ -393,7 +406,7 @@ const MAX_REDIRECTS = 5;
 
 const STATUS_HINTS: Record<number, string> = {
   401: 'check the API key, or reconnect the Assinafy connection',
-  403: 'this connection is not allowed to do this (for OAuth connections, check the approved permissions)',
+  403: 'this connection is not allowed to do this (the item may belong to another workspace or need a different Assinafy role; for OAuth connections, also check the approved permissions)',
   404: 'the item was not found in this workspace',
   429: 'too many requests, try again later',
 };

@@ -45,9 +45,9 @@ Before connecting, an owner of the Assinafy workspace must register an OAuth app
 - **Type**: Confidential.
 - **Permissions**: documents:read, documents:write, templates:read, templates:write, account:read, webhooks:write and offline_access.
 
-Then paste the application's Client ID and Client Secret here.
+Then paste the application's Client ID and Client Secret here, connect, and save within a minute: the approval code expires after 60 seconds.
 
-Assinafy ends OAuth connections 30 days after approval, so reconnect monthly. For automations that must run unattended, use an API key.`;
+Activepieces renews the access automatically when flows use the connection, and each renewal keeps it valid for another 30 days. A connection that goes 30 days without use expires; reconnect it then.`;
 
 export const assinafyAuth = [
   PieceAuth.CustomAuth({
@@ -103,6 +103,7 @@ export const assinafyAuth = [
     ],
     pkce: true,
     pkceMethod: 'S256',
+    extra: { resource: 'https://api.assinafy.com.br' },
     authorizationMethod: OAuth2AuthorizationMethod.BODY,
     getConnectionIdentifier: async ({ auth }) =>
       workspaceName(assinafyApi.oauthCredentials(auth.access_token)),

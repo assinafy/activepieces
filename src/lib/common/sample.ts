@@ -1,0 +1,41 @@
+const SAMPLE_DOCUMENT = {
+  id: '615601fab04c0a3147bb1246',
+  name: 'Service agreement.pdf',
+  status: 'certificated',
+  status_label: 'Signed',
+  is_closed: true,
+  account_id: 'd199996981dbd199996981db',
+  template_id: null,
+  page_count: 2,
+  tags: 'Contracts',
+  available_files: 'original, certificated, certificate-page, bundle',
+  signing_url: 'https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246',
+  decline_reason: null,
+  declined_by_name: null,
+  declined_by_email: null,
+  created_at: '2026-09-01T12:00:00Z',
+  updated_at: '2026-09-01T14:32:10Z',
+  assignment_id: '615606ef81d199996981dbce',
+  signature_method: 'virtual',
+  expires_at: null,
+  signer_count: 1,
+  signed_count: 1,
+  signer_emails: 'maria@example.com',
+  signers: [
+    {
+      id: '62d6ee35c7741ca4006b9e11',
+      full_name: 'Maria Silva',
+      email: 'maria@example.com',
+      whatsapp_phone_number: null,
+      step: 1,
+      verification_method: 'Email',
+      notification_method: 'Email',
+      signed: true,
+      signing_url: null,
+    },
+  ],
+};
+
+export const assinafySample = {
+  document: SAMPLE_DOCUMENT,
+};
