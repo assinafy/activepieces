@@ -14,6 +14,34 @@ function compact(values: Record<string, unknown>): Record<string, unknown> {
   );
 }
 
+function encodeId(value: string, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} ID is required. Select an item or map its ID.`);
+  }
+  return encodeURIComponent(value.trim());
+}
+
+function validateContact({
+  email,
+  whatsapp,
+  label,
+}: {
+  email?: string;
+  whatsapp?: string;
+  label: string;
+}): void {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error(`${label}: enter a valid email address, e.g. maria@example.com.`);
+  }
+  if (
+    whatsapp &&
+    (!/^[+\d\s().-]+$/.test(whatsapp) ||
+      !/^[1-9]\d{9,14}$/.test(digits(whatsapp)))
+  ) {
+    throw new Error(`${label}: enter a valid WhatsApp number with country code, e.g. +5548999990000.`);
+  }
+}
+
 function readText({
   record,
   key,
@@ -42,7 +70,11 @@ function readStep({
     return undefined;
   }
   const step = Number(value);
-  if (!Number.isInteger(step) || step < 1) {
+  if (
+    !['string', 'number'].includes(typeof value) ||
+    !Number.isSafeInteger(step) ||
+    step < 1
+  ) {
     throw new Error(
       `${label}: signing order must be a whole number starting at 1.`
     );
@@ -75,6 +107,9 @@ function toIsoDate({
     throw new Error(
       `${label} must be a valid date and time, e.g. 2026-12-31T18:00:00Z.`
     );
+  }
+  if (time < Date.now() + 60 * 60 * 1000) {
+    throw new Error(`${label} must be at least one hour in the future.`);
   }
   return new Date(time).toISOString();
 }
@@ -143,13 +178,17 @@ function isGovernmentId(value: string): boolean {
 
 function toIsoTimestamp(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Date(value < 1e12 ? value * 1000 : value).toISOString();
+    const date = new Date(value < 1e12 ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
   }
-  return typeof value === 'string' && value !== '' ? value : null;
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? value
+    : null;
 }
 
 export const assinafyValues = {
   compact,
+  encodeId,
   digits,
   isGovernmentId,
   isRecord,
@@ -159,4 +198,5 @@ export const assinafyValues = {
   textList,
   toIsoDate,
   toIsoTimestamp,
+  validateContact,
 };

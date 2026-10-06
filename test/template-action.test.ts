@@ -25,6 +25,11 @@ const twoRoleTemplate = {
   ],
 };
 
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 1));
+});
+afterEach(() => vi.restoreAllMocks());
+
 describe('Create Document from Template form', () => {
   test('shows contact, CPF, verification and order inputs for each non-editor role', async () => {
     replyData([apiTemplate]);
@@ -127,6 +132,29 @@ describe('Create Document from Template form', () => {
 });
 
 describe('Create Document from Template', () => {
+  test('signing order ignores copy receiver roles', async () => {
+    replyData([{
+      ...apiTemplate,
+      roles: [
+        { id: 'role_a', assignment_type: 'Signer' },
+        { id: 'role_copy', assignment_type: 'CopyReceiver' },
+      ],
+    }]);
+    replyData([apiSigner]);
+    replyData([{ ...apiSigner, id: 'sig_copy', email: 'copy@example.com' }]);
+    replyData(apiDocument);
+    await createDocumentFromTemplate.run(context({ props: {
+      template: 'tpl_1',
+      signers: {
+        email_role_a: 'maria@example.com', step_role_a: '1',
+        email_role_copy: 'copy@example.com',
+      },
+    } }));
+    expect(sentRequests().at(-1)?.body).toMatchObject({ signers: [
+      { role_id: 'role_a', step: 1 }, { role_id: 'role_copy' },
+    ] });
+  });
+
   test('resolves a signer per role and sends the template document request', async () => {
     replyData([apiTemplate]);
     replyData([]);

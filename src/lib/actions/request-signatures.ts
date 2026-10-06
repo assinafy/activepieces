@@ -169,7 +169,7 @@ export const requestSignatures = createAction({
 
     const assignment = await client.request<ApiAssignment>({
       method: HttpMethod.POST,
-      path: `/documents/${encodeURIComponent(propsValue.document)}/assignments`,
+      path: `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}/assignments`,
       body: assinafyValues.compact({
         method: 'virtual',
         signers: signers.map(({ request, signer }) => ({

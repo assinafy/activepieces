@@ -5,7 +5,7 @@ import {
 } from '@activepieces/pieces-framework';
 import { HttpMethod } from '@activepieces/pieces-common';
 import { assinafyAuth } from '../src/lib/auth';
-import { AssinafyAuthValue, assinafyApi } from '../src/lib/common/client';
+import { AssinafyAuthValue, AssinafyApiError, assinafyApi } from '../src/lib/common/client';
 import { createSigner } from '../src/lib/actions/create-signer';
 import { deleteDocument } from '../src/lib/actions/delete-document';
 import { downloadDocument } from '../src/lib/actions/download-document';
@@ -22,6 +22,9 @@ import { resendSignatureRequest } from '../src/lib/actions/resend-signature-requ
 import { documentSigned } from '../src/lib/triggers/document-signed';
 import { newEvent } from '../src/lib/triggers/new-event';
 import { assinafyOutputSchemas } from '../src/lib/output-schemas';
+import { ApiDocument, ApiTemplate } from '../src/lib/common/format';
+import { assinafyConstants } from '../src/lib/common/constants';
+import { assinafyDocuments } from '../src/lib/common/documents';
 import { memoryStore } from './helpers';
 
 vi.unmock('@activepieces/pieces-common');
@@ -96,6 +99,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
   const client = assinafyApi.forAuth(auth as AssinafyAuthValue);
   let documentId: string | undefined;
   let signerId: string | undefined;
+  const templateDocumentIds = new Set<string>();
 
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -103,6 +107,9 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
 
   afterAll(async () => {
     vi.unstubAllGlobals();
+    for (const id of templateDocumentIds) {
+      await client.request({ method: HttpMethod.DELETE, path: `/documents/${id}` });
+    }
     if (documentId) {
       await client
         .request({
@@ -202,6 +209,33 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
       activities.every((activity) => typeof activity.event === 'string')
     ).toBe(true);
   });
+
+  test('downloads available final artifacts from an existing signed document', async () => {
+    const signed = await client.list<ApiDocument>({
+      method: HttpMethod.GET,
+      path: await client.accountPath('/documents'),
+      queryParams: { status: 'certificated', 'per-page': 1 },
+    });
+    if (!signed[0]) {
+      console.info('No signed document is available for final-artifact downloads.');
+      return;
+    }
+    const document = await client.request<ApiDocument>({
+      method: HttpMethod.GET,
+      path: `/documents/${signed[0].id}`,
+    });
+    const artifacts = Object.keys(document.artifacts ?? {}).filter(
+      (type) => Object.hasOwn(assinafyConstants.downloadableFiles, type)
+    );
+    expect(artifacts).toEqual(expect.arrayContaining(['certificated', 'certificate-page', 'bundle']));
+    for (const file_type of artifacts) {
+      const download = liveContext({ props: { document: document.id, file_type } });
+      const result = await downloadDocument.run(download.ctx);
+      expect(Object.keys(result as object)).toEqual(describedKeys(assinafyOutputSchemas.download));
+      expect(download.written[0].data.subarray(0, file_type === 'bundle' ? 2 : 4).toString())
+        .toBe(file_type === 'bundle' ? 'PK' : '%PDF');
+    }
+  }, 30_000);
 
   test('creates, finds and updates a signer', async () => {
     const email = `ap-live-${runId}@example.com`;
@@ -329,6 +363,87 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
       documentSigned.test?.(liveContext({ props: {} }).ctx)
     ).resolves.toBeInstanceOf(Array);
   });
+
+  test('checks cost estimates or explicit plan restrictions for every verification method', async () => {
+    expect(documentId).toBeDefined();
+    await assinafyDocuments.waitUntilProcessed({ client, documentId: documentId! });
+    for (const method of Object.values(assinafyConstants.signerVerificationMethods)) {
+      try {
+        const cost = await client.request<{
+          total_credits: number;
+          breakdown: { code: string; cost: number }[];
+        }>({
+          method: HttpMethod.POST,
+          path: `/documents/${documentId}/assignments/estimate-cost`,
+          body: {
+            method: 'virtual',
+            signers: [{
+              verification_method: method.verification_method,
+              notification_methods: [method.notification_method],
+            }],
+          },
+        });
+        expect(Number.isFinite(cost.total_credits)).toBe(true);
+        expect(cost.total_credits).toBeGreaterThanOrEqual(0);
+        expect(Array.isArray(cost.breakdown)).toBe(true);
+      } catch (error) {
+        if (env['ASSINAFY_LIVE_REQUIRE_PAID_METHODS'] === '1') throw error;
+        expect(error).toBeInstanceOf(AssinafyApiError);
+        expect((error as AssinafyApiError).status).toBe(403);
+        expect((error as Error).message).toMatch(/plano|certificado|disponível/i);
+        console.info(
+          `${method.verification_method}/${method.notification_method}: workspace plan does not allow this method`
+        );
+      }
+    }
+  });
+
+  test.skipIf(env['ASSINAFY_LIVE_SEND'] !== '1')(
+    'creates and sends a document from a ready template',
+    async () => {
+      const templates = await client.list<ApiTemplate>({
+        method: HttpMethod.GET,
+        path: await client.accountPath('/templates'),
+      });
+      const template = templates.find((candidate) =>
+        candidate.status?.toLowerCase() === 'ready' &&
+        candidate.roles?.filter(
+          (role) => role.assignment_type?.toLowerCase() !== 'editor'
+        ).length === 1 &&
+        !(candidate.pages ?? []).some((page) =>
+          (page.fields ?? []).some((field) => candidate.roles?.some(
+            (role) => role.id === field.role_id &&
+              role.assignment_type?.toLowerCase() === 'editor'
+          ))
+        )
+      );
+      expect(template, 'Create a ready sandbox template with one signer role and no editor fields').toBeDefined();
+      const role = template!.roles!.find(
+        (candidate) => candidate.assignment_type?.toLowerCase() !== 'editor'
+      )!;
+      const document = await createDocumentFromTemplate.run(liveContext({
+        props: {
+          template: template!.id,
+          signers: {
+            [`email_${role.id}`]: `ap-live-${runId}@example.com`,
+            [`name_${role.id}`]: `Live ${runId}`,
+          },
+          document_name: `ap-template-${runId}.pdf`,
+        },
+      }).ctx) as { id: string; template_id: string; assignment_id: string | null };
+      templateDocumentIds.add(document.id);
+      expect(document.template_id).toBe(template!.id);
+      expect(Object.keys(document)).toEqual(describedKeys(assinafyOutputSchemas.document));
+      await vi.waitFor(async () => {
+        const current = await getDocument.run(liveContext({
+          props: { document: document.id },
+        }).ctx) as { assignment_id: string | null; status: string };
+        expect(current.assignment_id).toBeTruthy();
+        expect(current.status).toBe('pending_signature');
+      }, { timeout: 30_000, interval: 1000 });
+    },
+    40_000
+  );
 
   test.skipIf(env['ASSINAFY_LIVE_SEND'] !== '1')(
     'sends the document for signature and moves the deadline',

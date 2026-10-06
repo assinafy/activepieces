@@ -3,6 +3,7 @@ import { HttpMethod } from '@activepieces/pieces-common';
 import { assinafyAuth } from '../auth';
 import { assinafyApi } from '../common/client';
 import { assinafyProps } from '../common/props';
+import { assinafyValues } from '../common/values';
 
 export const deleteDocument = createAction({
   auth: assinafyAuth,
@@ -24,7 +25,7 @@ export const deleteDocument = createAction({
   async run({ auth, propsValue }) {
     await assinafyApi.forAuth(auth).request<unknown>({
       method: HttpMethod.DELETE,
-      path: `/documents/${encodeURIComponent(propsValue.document)}`,
+      path: `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`,
     });
     return { deleted: true, document_id: propsValue.document };
   },

@@ -34,7 +34,7 @@ function methodFor(request: SignerRequest) {
     request.verification ??
     (request.email || !request.whatsapp ? 'email' : 'whatsapp');
   const method = assinafyConstants.signerVerificationMethods[key];
-  if (!method) {
+  if (!Object.hasOwn(assinafyConstants.signerVerificationMethods, key)) {
     throw new Error(`${request.label}: unknown verification method "${key}".`);
   }
   return method;
@@ -43,6 +43,7 @@ function methodFor(request: SignerRequest) {
 function validateContacts(requests: SignerRequest[]): void {
   for (const [index, request] of requests.entries()) {
     const { label, email, whatsapp, governmentId } = request;
+    assinafyValues.validateContact({ email, whatsapp, label });
     if (!email && !whatsapp) {
       throw new Error(
         `${label}: provide an email address or a WhatsApp number.`
@@ -157,10 +158,12 @@ async function planSigner({
   client,
   signersPath,
   request,
+  existing: saved,
 }: {
   client: AssinafyClient;
   signersPath: string;
   request: SignerRequest;
+  existing?: ApiSigner;
 }): Promise<SignerPlan> {
   const { label, fullName, email, whatsapp, governmentId } = request;
   if (!email && !fullName) {
@@ -168,7 +171,7 @@ async function planSigner({
       `${label}: add the Full Name. Signers without an email address are found by their name and WhatsApp number.`
     );
   }
-  const existing = await findSigner({ client, signersPath, request });
+  const existing = saved ?? (await findSigner({ client, signersPath, request }));
   const who = email ?? fullName ?? whatsapp;
   if (!existing) {
     if (!fullName) {
@@ -240,12 +243,21 @@ async function applyPlan({
   if (created.error) {
     const createdMeanwhile =
       created.error instanceof AssinafyApiError &&
-      created.error.status < 500 &&
+      [400, 409].includes(created.error.status) &&
       plan.request.email
         ? await findSigner({ client, signersPath, request: plan.request })
         : undefined;
     if (createdMeanwhile) {
-      return createdMeanwhile;
+      return applyPlan({
+        client,
+        signersPath,
+        plan: await planSigner({
+          client,
+          signersPath,
+          request: plan.request,
+          existing: createdMeanwhile,
+        }),
+      });
     }
     throw created.error;
   }

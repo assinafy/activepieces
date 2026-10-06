@@ -36,10 +36,11 @@ export const updateSigningDeadline = createAction({
       value: propsValue.expires_at,
       label: 'New Deadline',
     });
+    if (!expiresAt) {
+      throw new Error('New Deadline is required.');
+    }
     const client = assinafyApi.forAuth(auth);
-    const documentPath = `/documents/${encodeURIComponent(
-      propsValue.document
-    )}`;
+    const documentPath = `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`;
     const document = await client.request<ApiDocument>({
       method: HttpMethod.GET,
       path: documentPath,

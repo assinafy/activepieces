@@ -47,6 +47,14 @@ export const createSigner = createAction({
     }),
   },
   async run({ auth, propsValue }) {
+    if (!propsValue.full_name?.trim()) {
+      throw new Error('Full Name is required to create a signer.');
+    }
+    assinafyValues.validateContact({
+      email: propsValue.email?.trim(),
+      whatsapp: propsValue.whatsapp?.trim(),
+      label: 'Signer',
+    });
     const governmentId = propsValue.government_id?.trim();
     if (governmentId && !assinafyValues.isGovernmentId(governmentId)) {
       throw new Error('A CPF has 11 digits and a CNPJ has 14 digits.');

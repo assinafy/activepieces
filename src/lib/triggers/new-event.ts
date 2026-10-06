@@ -172,6 +172,18 @@ export const newEvent = createTrigger({
   },
   sampleData: SAMPLE_EVENT,
   async onEnable(context) {
+    if (
+      !context.propsValue.events?.length ||
+      context.propsValue.events.some(
+        (event) => !Object.hasOwn(assinafyConstants.webhookEventLabels, event)
+      )
+    ) {
+      throw new Error('Select at least one valid webhook event.');
+    }
+    assinafyValues.validateContact({
+      email: context.propsValue.notification_email?.trim(),
+      label: 'Delivery Notice Email',
+    });
     const client = assinafyApi.forTrigger(context.auth);
     const current = await readSubscription(client);
     const deliversElsewhere = Boolean(

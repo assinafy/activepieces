@@ -44,7 +44,7 @@ jobs:
       - name: Typecheck and test the piece
         run: |
           npm run typecheck
-          npm test
+          npm run test:coverage
 
       - name: Build the piece
         run: npm run build

@@ -10,7 +10,7 @@ await build({
   outfile: 'dist/src/index.js',
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node24',
   format: 'cjs',
   minify: true,
   keepNames: true,

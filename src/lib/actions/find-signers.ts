@@ -38,8 +38,8 @@ export const findSigners = createAction({
     }),
   },
   async run({ auth, propsValue }) {
-    const limit = Math.trunc(propsValue.limit ?? 25);
-    if (limit < 1 || limit > 100) {
+    const limit = propsValue.limit ?? 25;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       throw new Error('Maximum Results must be between 1 and 100.');
     }
     const search = propsValue.search.trim();

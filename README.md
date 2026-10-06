@@ -5,7 +5,7 @@
 Send documents for legally valid electronic signature with [Assinafy](https://www.assinafy.com.br) and act on the result in [Activepieces](https://www.activepieces.com) flows: upload a PDF, invite signers by email or WhatsApp, wait for the signatures and store the signed PDF wherever you need it.
 
 - Package: `@assinafy/piece-assinafy`
-- Requires Activepieces 0.88.2 or later
+- Requires Activepieces 0.88.2 or later running Node.js 24 LTS
 - Assinafy accepts only HTTPS with TLS 1.2 or higher, which the Node.js runtime of Activepieces uses by default
 - API reference: <https://api.assinafy.com.br/v1/docs>
 
@@ -14,7 +14,7 @@ Send documents for legally valid electronic signature with [Assinafy](https://ww
 As a platform admin of your Activepieces instance:
 
 1. Open **Platform Admin → Setup → Pieces** and click **Install Piece**.
-2. Choose **NPM Registry**, enter the package name `@assinafy/piece-assinafy` and the version, for example `0.1.0`.
+2. Choose **NPM Registry**, enter the package name `@assinafy/piece-assinafy` and the version, for example `0.1.3`.
 3. The piece appears as **Assinafy** in the flow builder.
 
 To update, install the new version the same way.
@@ -52,12 +52,16 @@ Activepieces renews the access automatically when flows use the connection, and 
 
 Every Assinafy flow moves a document through the same stages. The piece has one action per stage:
 
-```
-Upload ──► Send ──► Track ──► Sign ──► Collect
-Document   Request  Get/Find  (in      Download
-Document   Signatures  Documents  Assinafy)  Document
-   │           │            ▲            │         │
-   └─ Create from Template ┘            └── Store ──┘
+```mermaid
+flowchart LR
+  Source[PDF or customer data] --> Upload[Upload Document]
+  Upload --> Send[Request Signatures]
+  Source --> Template[Create Document from Template]
+  Send --> Sign[Sign in Assinafy]
+  Template --> Sign
+  Sign --> Ready[Document Signed or New Event]
+  Ready --> Download[Download Document]
+  Download --> Store[Store signed files]
 ```
 
 1. **Upload**: [Upload Document](#upload-document) sends a PDF to `POST /v1/accounts/{accountId}/documents`, or [Create Document from Template](#create-document-from-template) generates the document from a ready template and sends it in one step.
@@ -73,8 +77,15 @@ Triggers fire at the moments that matter: **Document Signed** when the signed PD
 1. Any trigger that provides a file (a form, an email attachment, a CRM record).
 2. **Upload Document** with that file.
 3. **Request Signatures** on the uploaded document, with each signer's name and email or WhatsApp number.
-4. **Document Signed** trigger (in another flow) or a delay loop with **Get Document** until `status` is `certificated`.
-5. **Download Document** with **File** set to *Signed PDF*, then upload the file to your storage (Google Drive, SharePoint, S3…).
+4. Save the returned `document_id`/`assignment_id` on the source record to track it.
+
+Create and enable a second collection flow before sending documents:
+
+1. **Document Signed** as its trigger, or **New Event (Instant)** selecting `document_ready`.
+2. **Download Document**: map `id` from Document Signed, or `document_id` from New Event, into **Document**; choose *Signed PDF*.
+3. Upload the returned `file` to Google Drive, SharePoint or S3 and update the source record using the saved document ID. Select *PAdES* as an additional download when preserving ICP-Brasil certificate signatures is required.
+
+For a single running flow, use a Delay/Get Document loop until `certificated`, with a timeout and a branch for `rejected_by_signer`, `rejected_by_user`, `expired` or `failed`. Signing can take days; separate sending and collection flows avoid keeping a run open.
 
 ### Flow recipe: generate a contract from a template
 
@@ -187,7 +198,7 @@ Gets one document with its status, signers and signing progress.
 - Endpoint: `GET /v1/documents/{documentId}`
 - Inputs: **Document** (required)
 
-Returns the document shape shown in [Request Signatures](#request-signatures).
+Returns the complete [document output](#document-payload).
 
 ### Find Documents
 
@@ -310,7 +321,7 @@ Every document, signer and template input in the actions above is a dropdown, se
 
 The document is signed as soon as the last signer signs, but the signed PDF is available only after certification finishes. **Document Signed** fires after certification; **Download Document** also waits up to a minute while certification is still running.
 
-**Document Signed** fires once per document whose signing completed after the flow was turned on. It reads each new signed document's activity log (`GET /v1/documents/{documentId}/activities`) for the completion time, so documents signed earlier and edited later (for example tagged) do not fire it. Each check looks back ten minutes to tolerate clock differences. After downtime it catches up on the backlog over several checks, without skipping or repeating any.
+**Document Signed** fires once per document whose signing completed after the flow was turned on. It reads each new signed document's activity log (`GET /v1/documents/{documentId}/activities`) for the completion time, so documents signed earlier and edited later (for example tagged) do not fire it. Each check looks back ten minutes to tolerate clock differences. After downtime it catches up on the backlog over several checks, with a bounded ledger to suppress recent duplicates.
 
 ## Signers
 
@@ -339,6 +350,786 @@ When **Verification** is empty, it is email, or WhatsApp when the signer has onl
 ## Signing order
 
 Leave **Signing Order** empty for everyone to sign at the same time. To sign in sequence, set it on every signer: all signers with `1` are invited first, `2` after all of them sign, and so on. The numbers must start at 1 without gaps, and a digital certificate signer cannot share a number with anyone.
+
+## Request and response reference
+
+These examples use fictional IDs and `example.com` addresses. Replace them with values from your workspace. Deadlines are examples and must still be at least one hour after execution. **Inputs** are the piece's property keys for flow mapping; **HTTP** is the request sent to Assinafy. Optional empty values are omitted. The reusable payloads below include every output field exposed by the piece; the API can return additional fields, and missing optional fields map to `null` (signer lists map to `[]`). This integration exposes twelve dedicated actions, Custom API Call and two triggers; other API operations are available through Custom API Call.
+
+### HTTP conventions
+
+| Connection | Base URL | Header |
+|---|---|---|
+| API key, production | `https://api.assinafy.com.br/v1` | `X-Api-Key: <api-key>` |
+| API key, sandbox | `https://sandbox.assinafy.com.br/v1` | `X-Api-Key: <sandbox-api-key>` |
+| OAuth, production | `https://api.assinafy.com.br/v1` | `Authorization: Bearer <access-token>` |
+
+JSON writes use `Content-Type: application/json`. GET and DELETE requests have no body unless explicitly shown. Dedicated actions unwrap the API's `{status, message, data}` envelope and flatten entities. Custom API Call returns the framework's raw HTTP result. File downloads return binary bytes, not an envelope. API errors include the HTTP status, API message and available error details; transport errors on writes report that the server may already have received the request. A failed multi-request action can leave a created signer or sent request: inspect the document before repeating a send.
+
+### Document payload
+
+A successful document read uses this envelope. `assignment` is populated when available; a new upload or asynchronously generated template document can return it as `null`. A signed document uses `status: "certificated"`, `is_closed: true`, completed signers and additional artifacts. `pades` is available for ICP-Brasil signatures. Pages, tags and signers are arrays, so the example shows one representative entry in each.
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "resource": "document",
+    "id": "615601fab04c0a3147bb1246",
+    "account_id": "d199996981dbd199996981db",
+    "template_id": null,
+    "name": "Service agreement.pdf",
+    "status": "pending_signature",
+    "artifacts": {
+      "original": "https://api.assinafy.com.br/v1/documents/615601fab04c0a3147bb1246/download/original"
+    },
+    "is_closed": false,
+    "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246",
+    "decline_reason": null,
+    "declined_by": null,
+    "tags": [
+      {
+        "id": "615610fab04c0a3147bb1246",
+        "name": "Contracts"
+      }
+    ],
+    "assignment": {
+      "resource": "assignment",
+      "id": "615606ef81d199996981dbce",
+      "sender_email": "sender@example.com",
+      "method": "virtual",
+      "expires_at": "2030-12-31T21:00:00Z",
+      "message": "Please sign the service agreement.",
+      "signers": [
+        {
+          "id": "62d6ee35c7741ca4006b9e11",
+          "full_name": "Maria Silva",
+          "email": "maria@example.com",
+          "whatsapp_phone_number": null,
+          "has_accepted_terms": false,
+          "step": 1,
+          "verification_method": "Email",
+          "notification_methods": [
+            "Email"
+          ],
+          "completed": false
+        }
+      ],
+      "copy_receivers": [],
+      "items": [],
+      "summary": {
+        "signer_count": 1,
+        "completed_count": 0
+      },
+      "signing_urls": [
+        {
+          "signer_id": "62d6ee35c7741ca4006b9e11",
+          "url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
+        }
+      ]
+    },
+    "pages": [
+      {
+        "id": "615611fab04c0a3147bb1246",
+        "number": 1,
+        "width": 1240,
+        "height": 1755,
+        "download_url": "https://api.assinafy.com.br/v1/documents/615601fab04c0a3147bb1246/pages/1/download",
+        "fields": []
+      }
+    ],
+    "created_at": "2026-09-01T12:00:00Z",
+    "updated_at": "2026-09-01T12:01:00Z"
+  }
+}
+```
+
+The complete **document output** used by Upload Document, Create Document from Template, Get Document, Find Documents and Document Signed is:
+
+```json
+{
+  "id": "615601fab04c0a3147bb1246",
+  "name": "Service agreement.pdf",
+  "status": "pending_signature",
+  "status_label": "Waiting for signatures",
+  "is_closed": false,
+  "account_id": "d199996981dbd199996981db",
+  "template_id": null,
+  "page_count": 1,
+  "tags": "Contracts",
+  "available_files": "original",
+  "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246",
+  "decline_reason": null,
+  "declined_by_name": null,
+  "declined_by_email": null,
+  "created_at": "2026-09-01T12:00:00Z",
+  "updated_at": "2026-09-01T12:01:00Z",
+  "assignment_id": "615606ef81d199996981dbce",
+  "signature_method": "virtual",
+  "expires_at": "2030-12-31T21:00:00Z",
+  "signer_count": 1,
+  "signed_count": 0,
+  "signer_emails": "maria@example.com",
+  "signers": [
+    {
+      "id": "62d6ee35c7741ca4006b9e11",
+      "full_name": "Maria Silva",
+      "email": "maria@example.com",
+      "whatsapp_phone_number": null,
+      "step": 1,
+      "verification_method": "Email",
+      "notification_method": "Email",
+      "signed": false,
+      "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
+    }
+  ]
+}
+```
+
+An upload initially returns `status: "uploading"`, `page_count: null` and null assignment summary fields until processing creates them. Template generation is asynchronous: use the returned `id` with Get Document to read the assignment and progress. Find Documents returns an array of these complete outputs, or `[]`.
+
+### Assignment payload
+
+Request Signatures and Update Signing Deadline return an envelope whose `data` is the full `assignment` object in the document example above. Their complete **signature request output** is:
+
+```json
+{
+  "document_id": "615601fab04c0a3147bb1246",
+  "message": "Please sign the service agreement.",
+  "sender_email": "sender@example.com",
+  "assignment_id": "615606ef81d199996981dbce",
+  "signature_method": "virtual",
+  "expires_at": "2030-12-31T21:00:00Z",
+  "signer_count": 1,
+  "signed_count": 0,
+  "signer_emails": "maria@example.com",
+  "signers": [
+    {
+      "id": "62d6ee35c7741ca4006b9e11",
+      "full_name": "Maria Silva",
+      "email": "maria@example.com",
+      "whatsapp_phone_number": null,
+      "step": 1,
+      "verification_method": "Email",
+      "notification_method": "Email",
+      "signed": false,
+      "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
+    }
+  ]
+}
+```
+
+### Signer payload
+
+Create Signer and Update Signer return:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "resource": "signer",
+    "id": "62d6ee35c7741ca4006b9e11",
+    "full_name": "Maria Silva",
+    "email": "maria@example.com",
+    "whatsapp_phone_number": null,
+    "has_accepted_terms": false
+  }
+}
+```
+
+Their complete **signer output**, and each entry returned by Find Signers, is:
+
+```json
+{
+  "id": "62d6ee35c7741ca4006b9e11",
+  "full_name": "Maria Silva",
+  "email": "maria@example.com",
+  "whatsapp_phone_number": null,
+  "has_accepted_terms": false
+}
+```
+
+CPF/CNPJ is write-only in these responses. Find Signers returns an array of signer outputs, or `[]`.
+
+### Action inputs and HTTP requests
+
+#### Upload Document payload
+
+Inputs:
+
+```json
+{
+  "file": "https://files.example.com/service-agreement.pdf",
+  "name": "Service agreement.pdf"
+}
+```
+
+Activepieces resolves the file URL, previous-step file or base64 data URL to bytes. HTTP: `POST /accounts/{accountId}/documents`, multipart field **file**, filename `Service agreement.pdf`, content type `application/pdf`, PDF bytes as the part body. The piece supplies the boundary; do not encode the PDF as JSON. The name input controls the uploaded filename. Assinafy validates the PDF and its 2,000-page limit; the piece checks the 25 MB limit before uploading. Response: the [document payload](#document-payload), initially uploading.
+
+#### Request Signatures payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246",
+  "signers": [
+    {
+      "full_name": "Maria Silva",
+      "email": "maria@example.com",
+      "verification": "email",
+      "step": 1
+    }
+  ],
+  "message": "Please sign the service agreement.",
+  "expires_at": "2030-12-31T21:00:00Z",
+  "copy_receivers": [
+    {
+      "full_name": "Legal Team",
+      "email": "legal@example.com"
+    }
+  ]
+}
+```
+
+Each signer row also accepts `whatsapp` and `government_id`. Verification property values are `email`, `whatsapp`, `certificate_email`, `certificate_whatsapp`. The piece first reads the document, looks up every signer/copy recipient using the workspace signers list, and creates or updates missing details with the signer requests below. HTTP: `POST /documents/{documentId}/assignments`:
+
+```json
+{
+  "method": "virtual",
+  "signers": [
+    {
+      "id": "62d6ee35c7741ca4006b9e11",
+      "verification_method": "Email",
+      "notification_methods": [
+        "Email"
+      ],
+      "step": 1
+    }
+  ],
+  "message": "Please sign the service agreement.",
+  "expires_at": "2030-12-31T21:00:00.000Z",
+  "copy_receivers": [
+    "62d6ee35c7741ca4006b9e12"
+  ]
+}
+```
+
+Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]` and `DigitalCertificate`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
+
+#### Create Document from Template payload
+
+The piece reads `GET /accounts/{accountId}/templates?page=1&per-page=50` and further pages to locate the selected template (up to 500 templates). Roles provide `id`, `name`, `assignment_type`; page fields provide `field_id`, `role_id`, `label`. Non-editor roles appear under Signers; fields belonging to Editor roles appear under Template Fields. Template status must be ready (capitalization is accepted).
+
+Inputs for one signer role and one editor field:
+
+```json
+{
+  "template": "615607fab04c0a3147bb1246",
+  "signers": {
+    "email_615608fab04c0a3147bb1246": "maria@example.com",
+    "name_615608fab04c0a3147bb1246": "Maria Silva",
+    "verification_615608fab04c0a3147bb1246": "email",
+    "step_615608fab04c0a3147bb1246": "1"
+  },
+  "editor_fields": {
+    "field_615609fab04c0a3147bb1246": "Example Company"
+  },
+  "document_name": "Service agreement.pdf",
+  "message": "Please sign the service agreement.",
+  "expires_at": "2030-12-31T21:00:00Z",
+  "tags": [
+    "Contracts"
+  ]
+}
+```
+
+Each role also accepts `whatsapp_{roleId}` and `cpf_{roleId}`. CopyReceiver roles receive copies without signing; their verification and signing-order inputs are ignored and they do not occupy a signing step. The piece resolves workspace signers before generating the document. HTTP: `POST /accounts/{accountId}/templates/{templateId}/documents`:
+
+```json
+{
+  "signers": [
+    {
+      "role_id": "615608fab04c0a3147bb1246",
+      "id": "62d6ee35c7741ca4006b9e11",
+      "verification_method": "Email",
+      "notification_methods": [
+        "Email"
+      ],
+      "step": 1
+    }
+  ],
+  "editor_fields": [
+    {
+      "field_id": "615609fab04c0a3147bb1246",
+      "value": "Example Company"
+    }
+  ],
+  "name": "Service agreement.pdf",
+  "message": "Please sign the service agreement.",
+  "expires_at": "2030-12-31T21:00:00.000Z",
+  "tags": [
+    "Contracts"
+  ]
+}
+```
+
+Response: the [document payload](#document-payload) with `template_id` set; assignment details can appear after generation finishes. The API applies template defaults for omitted optional fields; tags merge with the template's default document tags.
+
+#### Get Document payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246"
+}
+```
+
+HTTP: `GET /documents/{documentId}`. Response: the [document payload](#document-payload).
+
+#### Find Documents payload
+
+Inputs:
+
+```json
+{
+  "search": "Service agreement",
+  "status": "pending_signature",
+  "limit": 25
+}
+```
+
+HTTP: `GET /accounts/{accountId}/documents?search=Service%20agreement&status=pending_signature&sort=-updated_at&page=1&per-page=50`. Empty search/status are omitted. Limit must be an integer from 1 to 100; default 25. Further pages are fetched until the limit or end is reached. API response: `{ "status": 200, "message": "", "data": [document] }`, where each document is the complete [document payload's](#document-payload) `data` object. Piece output: `[documentOutput]`, with the complete field set shown there; no matches return `[]`. Valid status codes are those in the status table below.
+
+#### Download Document payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246",
+  "file_type": "certificated",
+  "file_name": "service-agreement-signed.pdf"
+}
+```
+
+HTTP first reads `GET /documents/{documentId}`, then `GET /documents/{documentId}/download/certificated`. The download response is PDF bytes or a redirect to an HTTPS storage URL, followed with credentials removed when the origin changes. All accepted `file_type` values: `certificated`, `original`, `certificate-page`, `bundle`, `pades`. `bundle` returns ZIP bytes; the others return PDF bytes. Complete output:
+
+```json
+{
+  "file": "https://files.example.com/service-agreement-signed.pdf",
+  "file_name": "service-agreement-signed.pdf",
+  "file_type": "certificated",
+  "size_bytes": 48213,
+  "document_id": "615601fab04c0a3147bb1246",
+  "document_name": "Service agreement.pdf",
+  "document_status": "certificated"
+}
+```
+
+`file` is the reference returned by Activepieces file storage, usable by subsequent file actions. Empty `file_name` derives a name from the document and selected artifact.
+
+#### Resend Signature Request payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246",
+  "signer": "62d6ee35c7741ca4006b9e11"
+}
+```
+
+The piece reads the document to resolve its assignment; Assinafy validates the signer and resend eligibility. HTTP: `PUT /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/resend`, no body. API response:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "is_sent": true,
+    "document_id": "615601fab04c0a3147bb1246",
+    "signer_id": "62d6ee35c7741ca4006b9e11"
+  }
+}
+```
+
+Complete output:
+
+```json
+{
+  "sent": true,
+  "document_id": "615601fab04c0a3147bb1246",
+  "assignment_id": "615606ef81d199996981dbce",
+  "signer_id": "62d6ee35c7741ca4006b9e11"
+}
+```
+
+#### Update Signing Deadline payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246",
+  "expires_at": "2030-12-31T21:00:00Z"
+}
+```
+
+The piece reads the document to resolve its assignment. HTTP: `PUT /documents/{documentId}/assignments/{assignmentId}/reset-expiration`:
+
+```json
+{
+  "expires_at": "2030-12-31T21:00:00.000Z"
+}
+```
+
+Response: the [assignment payload](#assignment-payload) with the updated expiry.
+
+#### Delete Document payload
+
+Inputs:
+
+```json
+{
+  "document": "615601fab04c0a3147bb1246"
+}
+```
+
+Assinafy validates the document lifecycle status. HTTP: `DELETE /documents/{documentId}`, no body. API response:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": []
+}
+```
+
+Complete output:
+
+```json
+{
+  "deleted": true,
+  "document_id": "615601fab04c0a3147bb1246"
+}
+```
+
+#### Find Signers payload
+
+Inputs:
+
+```json
+{
+  "search": "maria@example.com",
+  "limit": 25
+}
+```
+
+HTTP: `GET /accounts/{accountId}/signers?search=maria%40example.com&page=1&per-page=50`. Search is required; limit is an integer from 1 to 100 (default 25). Response: `{ "status": 200, "message": "", "data": [signer] }`, using the complete [signer payload](#signer-payload). Complete piece output:
+
+```json
+[
+  {
+    "id": "62d6ee35c7741ca4006b9e11",
+    "full_name": "Maria Silva",
+    "email": "maria@example.com",
+    "whatsapp_phone_number": null,
+    "has_accepted_terms": false
+  }
+]
+```
+
+#### Create Signer payload
+
+Inputs:
+
+```json
+{
+  "full_name": "Maria Silva",
+  "email": "maria@example.com",
+  "whatsapp": "+5548999990000",
+  "government_id": "390.533.447-05"
+}
+```
+
+HTTP: `POST /accounts/{accountId}/signers`:
+
+```json
+{
+  "full_name": "Maria Silva",
+  "email": "maria@example.com",
+  "whatsapp_phone_number": "+5548999990000"
+}
+```
+
+When government_id is supplied, HTTP then sends `PUT /accounts/{accountId}/signers/{createdSignerId}`:
+
+```json
+{
+  "government_id": "390.533.447-05"
+}
+```
+
+Both calls return the [signer payload](#signer-payload). The piece returns the final signer output. A failed follow-up update leaves the created signer in the workspace; use Update Signer to finish setting the CPF/CNPJ.
+
+#### Update Signer payload
+
+Inputs:
+
+```json
+{
+  "signer": "62d6ee35c7741ca4006b9e11",
+  "full_name": "Maria Silva",
+  "email": "maria@example.com",
+  "whatsapp": "+5548999990000",
+  "government_id": "390.533.447-05"
+}
+```
+
+HTTP: `PUT /accounts/{accountId}/signers/{signerId}`:
+
+```json
+{
+  "full_name": "Maria Silva",
+  "email": "maria@example.com",
+  "whatsapp_phone_number": "+5548999990000",
+  "government_id": "390.533.447-05"
+}
+```
+
+Only nonempty inputs are sent; at least one change is required. Response: the [signer payload](#signer-payload).
+
+#### Custom API Call payload
+
+In the builder choose Method `GET`, URL `/accounts`, empty headers/query/body and **Follow redirects** `false`. HTTP: `GET /v1/accounts` with the selected connection's auth header. Example complete framework output:
+
+```json
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "status": 200,
+    "message": "",
+    "data": [
+      {
+        "resource": "account",
+        "id": "d199996981dbd199996981db",
+        "name": "Example Workspace"
+      }
+    ]
+  }
+}
+```
+
+For an additional operation, choose Method `POST`, URL `/documents/{documentId}/assignments/estimate-cost`, JSON body:
+
+```json
+{
+  "method": "virtual",
+  "signers": [
+    {
+      "verification_method": "DigitalCertificate",
+      "notification_methods": [
+        "Email"
+      ]
+    }
+  ]
+}
+```
+
+Response body (example balances):
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "documents": 1,
+    "credits": 2,
+    "needs_extra_document": false,
+    "extra_document_cost": 0,
+    "total_credits": 2,
+    "breakdown": [
+      {
+        "code": "SignatureDigitalCertificate",
+        "quantity": 1,
+        "unit_cost": 2,
+        "cost": 2,
+        "name": "Digital certificate signature"
+      }
+    ],
+    "document_balance": 10,
+    "credit_balance": 20,
+    "has_sufficient_resources": true,
+    "blocking_reason": null,
+    "message": null
+  }
+}
+```
+
+The endpoint creates no assignment. A workspace plan can reject unavailable verification/notification features with HTTP 403. Custom API Call leaves the envelope inside `body`; its response headers and bodies vary by endpoint.
+
+### Trigger requests and payloads
+
+**Document Signed** has no inputs. It reads workspace documents with `status=certificated&sort=-updated_at&page=1&per-page=50` and document activities. Activity response example:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": [
+    {
+      "id": 4821,
+      "event": "document_ready",
+      "created_at": "2026-09-01T14:32:10Z"
+    }
+  ]
+}
+```
+
+Each emitted item is the complete [document output](#document-payload), with signed status and counters. A polling invocation returns an array of items internally; Activepieces starts one flow run per item.
+
+**New Event (Instant)** inputs:
+
+```json
+{
+  "events": [
+    "document_ready",
+    "signer_rejected_document"
+  ],
+  "notification_email": "ops@example.com",
+  "replace_existing": false
+}
+```
+
+Enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, then sends `PUT` to the same path:
+
+```json
+{
+  "events": [
+    "document_ready",
+    "signer_rejected_document"
+  ],
+  "is_active": true,
+  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-secret>",
+  "email": "ops@example.com"
+}
+```
+
+The API returns the same fields under `data`, plus `updated_at`. The piece reads them back to verify registration. Disable reads the subscription and writes `is_active: false` while preserving its URL, events and email, only if the subscription still belongs to the flow. Example webhook POST delivered by Assinafy (the secret remains in the request query):
+
+```json
+{
+  "id": 4821,
+  "event": "document_ready",
+  "message": "The document was signed by all signers.",
+  "created_at": 1788273130,
+  "account_id": "d199996981dbd199996981db",
+  "subject": {
+    "type": "Account",
+    "id": "d199996981dbd199996981db",
+    "name": "Example Workspace"
+  },
+  "object": {
+    "type": "Document",
+    "id": "615601fab04c0a3147bb1246",
+    "name": "Service agreement.pdf"
+  },
+  "payload": {
+    "signer_email": "maria@example.com"
+  }
+}
+```
+
+The output starts with these fields, plus **every** field from the complete [document output](#document-payload) prefixed with `document_` (for example `document_id`, `document_status`, `document_signers`):
+
+```json
+{
+  "event_id": 4821,
+  "event": "document_ready",
+  "message": "The document was signed by all signers.",
+  "occurred_at": "2026-09-01T14:32:10.000Z",
+  "account_id": "d199996981dbd199996981db",
+  "actor_type": "Account",
+  "actor_id": "d199996981dbd199996981db",
+  "actor_name": "Example Workspace",
+  "actor_email": null,
+  "object_type": "Document",
+  "object_id": "615601fab04c0a3147bb1246",
+  "object_name": "Service agreement.pdf",
+  "detail_signer_email": "maria@example.com"
+}
+```
+
+Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key derived from `event_id`. Accepted event codes:
+
+`document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `template_created`, `template_processed`, `template_processing_failed`.
+
+### OAuth protocol payloads
+
+Activepieces handles this protocol; flow authors use the connection dialog. Discovery: [authorization server](https://auth.assinafy.com.br/.well-known/oauth-authorization-server) and [protected resource](https://api.assinafy.com.br/.well-known/oauth-protected-resource).
+
+Authorization: `GET https://auth.assinafy.com.br/oauth/authorize` with these URL-encoded parameters:
+
+```text
+response_type=code
+client_id=<client-id>
+redirect_uri=https://automations.example.com/redirect
+scope=documents:read documents:write templates:read templates:write account:read webhooks:write offline_access
+state=<random-state>
+code_challenge=<base64url-sha256-of-verifier>
+code_challenge_method=S256
+resource=https://api.assinafy.com.br
+```
+
+Validate state and the issuer on the callback. Exchange: `POST https://api.assinafy.com.br/v1/oauth/token`, `Content-Type: application/x-www-form-urlencoded`, body fields:
+
+```text
+grant_type=authorization_code
+client_id=<client-id>
+client_secret=<client-secret>
+code=<authorization-code>
+redirect_uri=https://automations.example.com/redirect
+code_verifier=<original-verifier>
+resource=https://api.assinafy.com.br
+```
+
+Tokens use plain JSON, **without** the standard API envelope:
+
+```json
+{
+  "access_token": "<access-token>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "<refresh-token>",
+  "scope": "documents:read documents:write templates:read templates:write account:read webhooks:write offline_access"
+}
+```
+
+Refresh: POST to the same token endpoint with URL-encoded `grant_type=refresh_token`, `client_id`, `client_secret`, `refresh_token` and `resource=https://api.assinafy.com.br`. Response has the same token fields with new access/refresh tokens. Store the replacement refresh token atomically and serialize refreshes: reusing a consumed token revokes its token family. Access tokens last one hour; refresh validity slides by 30 days after renewal.
+
+Revoke: `POST https://api.assinafy.com.br/v1/oauth/revoke` with URL-encoded `client_id`, `client_secret`, `token=<refresh-token>`, `token_type_hint=refresh_token`. Success is HTTP 200 with an empty response; revoked bearer access returns HTTP 401. The connection dialog and platform own token exchange/refresh; the piece's HTTP client receives an already-managed access token.
+
+### Document status codes
+
+| Status | Meaning |
+|---|---|
+| `uploading` | File transfer in progress |
+| `uploaded` | File received |
+| `metadata_processing` | Pages and metadata processing |
+| `metadata_ready` | Ready for a signature request |
+| `pending_signature` | Waiting for signers |
+| `certificating` | All signed; preparing final files |
+| `certificated` | Signed files available |
+| `rejected_by_signer` | Declined by a signer |
+| `rejected_by_user` | Cancelled by a workspace user |
+| `expired` | Signing deadline passed |
+| `failed` | Processing failed |
 
 ## Output fields
 
@@ -399,6 +1190,8 @@ npm run build            # bundles the piece into dist/
 
 The piece is built against the Activepieces piece framework at the commit in `ACTIVEPIECES_REF`. `npm install` downloads the framework, common and core libraries from that commit into `.activepieces/`, and the build bundles them into a single file. To build against a newer Activepieces, change `ACTIVEPIECES_REF`, run `npm install` and run the tests.
 
+Vitest 4 enforces 95% statements/lines, 90% branches and 100% functions. Framework preparation preserves Node.js TLS certificate verification; a real-client regression check verifies that HTTP calls leave it enabled.
+
 Unit tests mock the HTTP client and block any real network request. One upload test runs the real Activepieces HTTP client against a stubbed `fetch` to check the multipart request on the wire.
 
 ### Implementation notes
@@ -406,15 +1199,15 @@ Unit tests mock the HTTP client and block any real network request. One upload t
 - Requests made by triggers time out after 15 seconds, well within the time Activepieces gives a trigger run; actions allow 120 seconds.
 - When two runs create the same new signer at the same moment, the run that loses reuses the signer the other one created.
 - Requests do not follow redirects automatically. A redirect is followed only for reads and downloads and only to an `https://` address, and the credentials are left out when it points outside the Assinafy address, for example to file storage.
-- Uploads use the `form-data` package. The Activepieces HTTP client sets the multipart content type and boundary only for `form-data` bodies; a global `FormData` body would be sent as JSON.
+- Uploads use `form-data` with a filename, content type and multipart boundary handled by the Activepieces HTTP client.
 - Assinafy's create-signer endpoint does not accept a CPF/CNPJ, so it is set with a follow-up update.
-- Assinafy returns at most 50 items per list page, and repeats the last page when asked for a page beyond the end. List reads follow the `X-Pagination-Page-Count` header and stop at a short or repeated page.
+- The piece requests 50 items per page. The API reference permits up to 100; list reads follow `X-Pagination-Page-Count` and stop at a short or repeated page.
 - The API reference documents no single-template endpoint, so the template form and action scan up to 500 templates.
 - **Document Signed** keeps its own state and keeps it when a flow is republished: the time it was turned on, the last completed check, the position of an unfinished backlog scan, and a ledger of documents it fired recently.
   - Signed documents are listed newest first, cannot be deleted, and only move down the list as others are signed or edited. A backlog scan therefore resumes after the last document it examined (by update time and ID), and the time checkpoint advances only when the scan has reached documents older than the previous check.
   - A document fires when its completion time (the newest `document_ready` activity, else the newest `signer_signed_document`) is after the trigger was turned on and no more than 24 hours before the start of the check window. A document with neither activity does not fire. The ledger remembers the documents fired in that period so later edits do not fire them again, drops entries that can no longer pass the rule, and holds at most 5,000 entries to stay within the Activepieces store limit.
   - Each check reads at most 10 pages of 50 documents and 40 activity logs, and stops after 30 seconds; the next check continues where it stopped. An error after some documents were examined keeps that progress; an error before any fails the check.
-  - A document whose activity log cannot be read is tried again on the next two checks. After that it fires with its update time as the completion time, so one broken document cannot stop the trigger.
+  - Authorization errors (401/403) fail the check without emitting that document. Other unreadable activity logs are tried again on the next two checks. After that it fires with its update time as the completion time, so one broken document cannot stop the trigger.
   - Activepieces saves a polling trigger's progress before it starts the flow runs for the returned items. If starting them fails, those documents are not returned again. This applies to every Activepieces polling trigger; the piece gets no signal to replay them.
 
 ### Sandbox tests
@@ -428,11 +1221,22 @@ ASSINAFY_API_KEY=<sandbox key> npm run test:live
 | Variable | Effect |
 |---|---|
 | `ASSINAFY_ACCOUNT_ID` | Workspace to use when the key has several |
-| `ASSINAFY_LIVE_SEND=1` | Also sends a signature request to an `example.com` address (uses one plan document) |
+| `ASSINAFY_LIVE_SEND=1` | Also sends an uploaded document and a ready one-signer template to `example.com` addresses (uses plan documents) |
+| `ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1` | Requires all four cost estimates to succeed; otherwise explicit plan restrictions are checked |
 | `ASSINAFY_LIVE_WEBHOOK=1` | Also enables and disables the workspace webhook; fails instead of replacing another destination |
 | `ASSINAFY_LIVE_WEBHOOK_EMAIL` | Delivery notice address for the webhook check (defaults to an `example.com` address) |
 
-The suite also reads a document's activity log, which **Document Signed** relies on.
+The suite also checks all four verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. The template sending check requires a ready template with one signer role and no editor fields. These API checks do not complete an OTP or A1/A3 signing session; that requires a recipient-controlled inbox/phone or a compatible certificate.
+
+### Production OAuth tests
+
+After authorizing a temporary confidential app using the registered HTTPS callback and PKCE, store its token response outside the repository in a file readable only by you:
+
+```sh
+ASSINAFY_OAUTH_TOKEN_FILE=/private/tmp/assinafy-token.json npm run test:oauth
+```
+
+Alternatively supply `ASSINAFY_OAUTH_ACCESS_TOKEN`. The two tests read the authorized workspace, documents, signer/template dropdowns and trigger samples. Exchange, rotating refresh and revocation use the protocol above; revoke the temporary refresh token after testing. For a local callback, `cloudflared tunnel --url http://127.0.0.1:18763 --protocol http2` supplies an HTTPS URL to register, then stop the callback and tunnel after the check. Keep state, verifier, client secret and tokens outside the repository and printed output.
 
 ### Try it in Activepieces
 

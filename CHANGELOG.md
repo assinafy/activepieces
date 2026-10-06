@@ -1,10 +1,20 @@
 # Changelog
 
+## 0.1.3
+
+- HTTPS requests preserve Node.js certificate verification.
+- Concurrent signer creation validates saved contact details and fills missing WhatsApp numbers.
+- Contact details, identifiers, deadlines, result limits and option values are validated before writes.
+- Template generation accepts ready templates regardless of status capitalization and excludes copy receivers from signing-order validation.
+- Polling reports authorization failures without treating them as completed signatures.
+- Node.js 24 LTS builds, Vitest 4 tests and coverage checks in the publishing workflow.
+- Complete document flows and action, trigger and OAuth payload reference.
+
 ## 0.1.2
 
-- OAuth: the connection dialog and READMEs describe Assinafy's sliding refresh (each renewal keeps a connection valid for another 30 days; it expires only after 30 days without use) instead of a monthly reconnect.
+- OAuth connections use a sliding refresh window: each renewal keeps access valid for another 30 days; connections expire after 30 days without renewal.
 - OAuth: the authorization request names the Assinafy API as the token's resource (`resource=https://api.assinafy.com.br`).
-- Redirects to an address without HTTPS are no longer followed.
+- Redirects are followed only to HTTPS addresses.
 - Connection errors include their reason, for example a TLS handshake failure, and an HTTP 403 error lists its possible causes.
 
 ## 0.1.1

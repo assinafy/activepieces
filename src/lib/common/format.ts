@@ -101,10 +101,7 @@ function formatEvent({
     event_id: event['id'] ?? null,
     event: event['event'] ?? null,
     message: event['message'] ?? null,
-    occurred_at:
-      typeof createdAt === 'number'
-        ? new Date(createdAt * 1000).toISOString()
-        : null,
+    occurred_at: assinafyValues.toIsoTimestamp(createdAt),
     account_id: event['account_id'] ?? null,
     actor_type: subject['type'] ?? null,
     actor_id: subject['id'] ?? null,
@@ -134,7 +131,9 @@ function statusLabel(status: string | undefined | null): string | null {
   if (!status) {
     return null;
   }
-  return assinafyConstants.documentStatusLabels[status] ?? status;
+  return Object.hasOwn(assinafyConstants.documentStatusLabels, status)
+    ? assinafyConstants.documentStatusLabels[status]
+    : status;
 }
 
 function availableFiles(document: ApiDocument): string | null {
@@ -142,7 +141,7 @@ function availableFiles(document: ApiDocument): string | null {
     return null;
   }
   return Object.keys(document.artifacts)
-    .filter((name) => name in assinafyConstants.downloadableFiles)
+    .filter((name) => Object.hasOwn(assinafyConstants.downloadableFiles, name))
     .join(', ');
 }
 

@@ -4,6 +4,7 @@ import { assinafyAuth } from '../auth';
 import { assinafyApi } from '../common/client';
 import { ApiDocument, assinafyFormat } from '../common/format';
 import { assinafyProps } from '../common/props';
+import { assinafyValues } from '../common/values';
 import { assinafyOutputSchemas } from '../output-schemas';
 
 export const getDocument = createAction({
@@ -27,7 +28,7 @@ export const getDocument = createAction({
   async run({ auth, propsValue }) {
     const document = await assinafyApi.forAuth(auth).request<ApiDocument>({
       method: HttpMethod.GET,
-      path: `/documents/${encodeURIComponent(propsValue.document)}`,
+      path: `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`,
     });
     return assinafyFormat.document(document);
   },

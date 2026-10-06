@@ -417,6 +417,20 @@ describe('Document Signed: polling', () => {
     });
   });
 
+  test('never treats authorization failures as a completed signature after repeated checks', async () => {
+    for (const status of [401, 403]) {
+      fakeAssinafy({
+        documents: signedAfterEnable({ count: 1 }),
+        onActivities: () => { throw new HttpError(undefined, { status, responseBody: { message: 'Authorization failed' } }); },
+      });
+      const store = enabledAt(T0);
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await expect(poll({ store, now: T0 + attempt * 5 * MINUTE })).rejects.toThrow(`HTTP ${status}`);
+      }
+      expect(savedState(store)).toMatchObject({ ledger: [], checkedUntil: T0 });
+    }
+  });
+
   test('handles documents that share the same update time', async () => {
     const tied = Array.from({ length: 45 }, (_, index) => ({
       id: `tied_${String(index).padStart(2, '0')}`,

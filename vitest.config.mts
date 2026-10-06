@@ -3,7 +3,7 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 const { compilerOptions } = JSON.parse(
-  readFileSync(path.resolve(__dirname, 'tsconfig.json'), 'utf-8')
+  readFileSync(path.resolve(import.meta.dirname, 'tsconfig.json'), 'utf-8')
 );
 
 export default defineConfig({
@@ -14,7 +14,7 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: [path.resolve(import.meta.dirname, 'src/**/*.ts')],
       exclude: ['src/i18n/**'],
       thresholds: {
         statements: 95,
@@ -28,7 +28,7 @@ export default defineConfig({
     alias: Object.fromEntries(
       Object.entries(compilerOptions.paths).map(([name, [target]]) => [
         name,
-        path.resolve(__dirname, target),
+        path.resolve(import.meta.dirname, target),
       ])
     ),
   },

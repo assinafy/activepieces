@@ -49,9 +49,15 @@ export const findDocuments = createAction({
     }),
   },
   async run({ auth, propsValue }) {
-    const limit = Math.trunc(propsValue.limit ?? 25);
-    if (limit < 1 || limit > 100) {
+    const limit = propsValue.limit ?? 25;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       throw new Error('Maximum Results must be between 1 and 100.');
+    }
+    if (
+      propsValue.status &&
+      !Object.hasOwn(assinafyConstants.documentStatusLabels, propsValue.status)
+    ) {
+      throw new Error('Select a valid document status.');
     }
     const client = assinafyApi.forAuth(auth);
     const documents = await client.listAll<ApiDocument>({

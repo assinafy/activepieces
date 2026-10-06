@@ -211,7 +211,7 @@ export const apiTemplate = {
   name: 'NDA template.pdf',
   document_name: 'NDA.pdf',
   message: null,
-  status: 'ready',
+  status: 'Ready',
   pages: [
     {
       id: 'tpage_1',

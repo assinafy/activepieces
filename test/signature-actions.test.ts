@@ -17,6 +17,11 @@ const signersUrl = `${PRODUCTION}/accounts/acc_1/signers`;
 const assignmentsUrl = `${PRODUCTION}/documents/doc_1/assignments`;
 const readyDocument = { ...apiDocument, status: 'metadata_ready' };
 
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 1));
+});
+afterEach(() => vi.restoreAllMocks());
+
 describe('Request Signatures', () => {
   afterEach(() => {
     vi.useRealTimers();

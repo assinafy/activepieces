@@ -4,6 +4,7 @@ import { assinafyAuth } from '../auth';
 import { assinafyApi } from '../common/client';
 import { ApiDocument } from '../common/format';
 import { assinafyProps } from '../common/props';
+import { assinafyValues } from '../common/values';
 import { assinafyOutputSchemas } from '../output-schemas';
 
 export const resendSignatureRequest = createAction({
@@ -27,9 +28,7 @@ export const resendSignatureRequest = createAction({
   },
   async run({ auth, propsValue }) {
     const client = assinafyApi.forAuth(auth);
-    const documentPath = `/documents/${encodeURIComponent(
-      propsValue.document
-    )}`;
+    const documentPath = `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`;
     const document = await client.request<ApiDocument>({
       method: HttpMethod.GET,
       path: documentPath,
@@ -44,7 +43,7 @@ export const resendSignatureRequest = createAction({
       method: HttpMethod.PUT,
       path: `${documentPath}/assignments/${encodeURIComponent(
         assignmentId
-      )}/signers/${encodeURIComponent(propsValue.signer)}/resend`,
+      )}/signers/${assinafyValues.encodeId(propsValue.signer, 'Signer')}/resend`,
     });
     return {
       sent: result.is_sent ?? null,

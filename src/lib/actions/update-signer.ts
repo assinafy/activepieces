@@ -52,6 +52,11 @@ export const updateSigner = createAction({
     }),
   },
   async run({ auth, propsValue }) {
+    assinafyValues.validateContact({
+      email: propsValue.email?.trim(),
+      whatsapp: propsValue.whatsapp?.trim(),
+      label: 'Signer',
+    });
     const changes = assinafyValues.compact({
       full_name: propsValue.full_name?.trim(),
       email: propsValue.email?.trim(),
@@ -69,7 +74,7 @@ export const updateSigner = createAction({
     const signer = await client.request<ApiSigner>({
       method: HttpMethod.PUT,
       path: await client.accountPath(
-        `/signers/${encodeURIComponent(propsValue.signer)}`
+        `/signers/${assinafyValues.encodeId(propsValue.signer, 'Signer')}`
       ),
       body: changes,
     });

@@ -5,6 +5,7 @@ import { assinafyConstants } from '../common/constants';
 import { assinafyDocuments } from '../common/documents';
 import { assinafyFormat } from '../common/format';
 import { assinafyProps } from '../common/props';
+import { assinafyValues } from '../common/values';
 import { assinafyOutputSchemas } from '../output-schemas';
 
 export const downloadDocument = createAction({
@@ -47,13 +48,11 @@ export const downloadDocument = createAction({
   async run({ auth, propsValue, files }) {
     const { file_type: fileType } = propsValue;
     const file = assinafyConstants.downloadableFiles[fileType];
-    if (!file) {
+    if (!Object.hasOwn(assinafyConstants.downloadableFiles, fileType)) {
       throw new Error(`Unknown file type "${fileType}".`);
     }
     const client = assinafyApi.forAuth(auth);
-    const documentPath = `/documents/${encodeURIComponent(
-      propsValue.document
-    )}`;
+    const documentPath = `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`;
     const document = await assinafyDocuments.waitWhile({
       client,
       documentId: propsValue.document,
@@ -69,7 +68,7 @@ export const downloadDocument = createAction({
           assinafyFormat.statusLabel(document.status) ?? 'unknown'
         }). Available files: ${
           Object.keys(document.artifacts ?? {})
-            .filter((name) => name in assinafyConstants.downloadableFiles)
+            .filter((name) => Object.hasOwn(assinafyConstants.downloadableFiles, name))
             .join(', ') || 'none'
         }.`
       );

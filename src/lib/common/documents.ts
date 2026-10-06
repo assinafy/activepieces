@@ -1,6 +1,7 @@
 import { HttpMethod } from '@activepieces/pieces-common';
 import { AssinafyClient } from './client';
 import { ApiDocument, assinafyFormat } from './format';
+import { assinafyValues } from './values';
 
 async function waitWhile({
   client,
@@ -15,7 +16,7 @@ async function waitWhile({
   checks: number;
   intervalMs: number;
 }): Promise<ApiDocument> {
-  const path = `/documents/${encodeURIComponent(documentId)}`;
+  const path = `/documents/${assinafyValues.encodeId(documentId, 'Document')}`;
   let document = await client.request<ApiDocument>({
     method: HttpMethod.GET,
     path,

@@ -6,7 +6,7 @@ import {
 } from '@activepieces/pieces-framework';
 import { HttpMethod } from '@activepieces/pieces-common';
 import { assinafyAuth } from '../auth';
-import { AssinafyClient, assinafyApi } from '../common/client';
+import { AssinafyApiError, AssinafyClient, assinafyApi } from '../common/client';
 import { assinafyConstants } from '../common/constants';
 import { ApiDocument, assinafyFormat } from '../common/format';
 import { assinafySample } from '../common/sample';
@@ -122,6 +122,12 @@ async function poll({
           checks++;
           const check = await tryCatch(() => completedAt({ client, document }));
           if (check.error) {
+            if (
+              check.error instanceof AssinafyApiError &&
+              [401, 403].includes(check.error.status)
+            ) {
+              throw check.error;
+            }
             const attempts = stuck?.id === document.id ? stuck.attempts + 1 : 1;
             if (attempts < MAX_CHECK_ATTEMPTS) {
               stuck = { id: document.id, attempts };

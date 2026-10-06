@@ -39,6 +39,10 @@ function isEditorRole(role: TemplateRole): boolean {
   return role.assignment_type?.toLowerCase() === 'editor';
 }
 
+function isCopyReceiverRole(role: TemplateRole): boolean {
+  return role.assignment_type?.toLowerCase() === 'copyreceiver';
+}
+
 async function loadTemplate({
   auth,
   template,
@@ -209,13 +213,22 @@ export const createDocumentFromTemplate = createAction({
     }),
   },
   async run({ auth, propsValue }) {
+    const encodedTemplateId = assinafyValues.encodeId(
+      propsValue.template,
+      'Template'
+    );
     const client = assinafyApi.forAuth(auth);
     const template = await findTemplate({
       client,
-      templateId: propsValue.template,
+      templateId: propsValue.template.trim(),
     });
     if (!template) {
       throw new Error('The selected template was not found in this workspace.');
+    }
+    if (template.status?.toLowerCase() !== 'ready') {
+      throw new Error(
+        'This template is not ready. Wait for processing to finish in Assinafy.'
+      );
     }
     const roles = (template.roles ?? []).filter((role) => !isEditorRole(role));
     if (roles.length === 0) {
@@ -234,16 +247,22 @@ export const createDocumentFromTemplate = createAction({
         whatsapp: read(`whatsapp_${role.id}`),
         fullName: read(`name_${role.id}`),
         governmentId: read(`cpf_${role.id}`),
-        verification: read(`verification_${role.id}`),
-        step: assinafyValues.readStep({
-          record: roleValues,
-          key: `step_${role.id}`,
-          label,
-        }),
+        verification: isCopyReceiverRole(role)
+          ? undefined
+          : read(`verification_${role.id}`),
+        step: isCopyReceiverRole(role)
+          ? undefined
+          : assinafyValues.readStep({
+              record: roleValues,
+              key: `step_${role.id}`,
+              label,
+            }),
       };
     });
     assinafySigners.validateContacts(requests);
-    assinafySigners.validateSigningOrder(requests);
+    assinafySigners.validateSigningOrder(
+      requests.filter((_, index) => !isCopyReceiverRole(roles[index]))
+    );
 
     const fieldValues = propsValue.editor_fields ?? {};
     const editorFields = Object.keys(fieldValues)
@@ -262,7 +281,7 @@ export const createDocumentFromTemplate = createAction({
     const document = await client.request<ApiDocument>({
       method: HttpMethod.POST,
       path: await client.accountPath(
-        `/templates/${encodeURIComponent(propsValue.template)}/documents`
+        `/templates/${encodedTemplateId}/documents`
       ),
       body: assinafyValues.compact({
         signers: resolved.map(({ request, signer }, index) => ({

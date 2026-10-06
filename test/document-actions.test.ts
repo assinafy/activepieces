@@ -129,9 +129,12 @@ describe('Upload Document', () => {
         )
     );
     vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('NODE_TLS_REJECT_UNAUTHORIZED', '1');
     await uploadDocument.run(
       context({ props: { file: pdf(), name: undefined } })
     );
+    expect(process.env['NODE_TLS_REJECT_UNAUTHORIZED']).toBe('1');
+    vi.unstubAllEnvs();
     const [, init] = fetchMock.mock.calls[0] as unknown as [
       string,
       { headers: Record<string, string>; body: Buffer }

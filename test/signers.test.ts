@@ -368,6 +368,20 @@ describe('resolve', () => {
     ).rejects.toThrow('HTTP 503');
   });
 
+  test('validates the concurrent winner before reusing it and adds a missing phone', async () => {
+    replyData([]);
+    replyError({ status: 400, body: { message: 'Email already exists' } });
+    replyData([{ ...apiSigner, email: 'new@example.com', whatsapp_phone_number: '+5511911110000' }]);
+    await expect(resolve({ email: 'new@example.com', fullName: 'New Person', whatsapp: '+5548999990000' })).rejects.toThrow('different WhatsApp number');
+    sendRequest.mockReset();
+    replyData([]);
+    replyError({ status: 400, body: { message: 'Email already exists' } });
+    replyData([{ ...apiSigner, email: 'new@example.com' }]);
+    replyData({ ...apiSigner, email: 'new@example.com', whatsapp_phone_number: '+5548999990000' });
+    await resolve({ email: 'new@example.com', fullName: 'New Person', whatsapp: '+5548999990000' });
+    expect(sentRequests().at(-1)).toMatchObject({ method: HttpMethod.PUT, body: { whatsapp_phone_number: '+5548999990000' } });
+  });
+
   test('an empty page means no match', async () => {
     replyData([]);
     replyData({ ...apiSigner, id: 'created' });
