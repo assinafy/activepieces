@@ -137,7 +137,7 @@ describe('Upload Document', () => {
     vi.unstubAllEnvs();
     const [, init] = fetchMock.mock.calls[0] as unknown as [
       string,
-      { headers: Record<string, string>; body: Buffer }
+      { headers: Record<string, string>; body: Buffer },
     ];
     const contentType = Object.entries(init.headers).find(
       ([key]) => key.toLowerCase() === 'content-type'

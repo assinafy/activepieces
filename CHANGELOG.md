@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- New Event (Instant) registers a webhook endpoint of its own for each flow (1 per workspace, or up to 3 on paid plans) and deletes it when the flow is turned off. **Replace Existing Webhook** reuses the oldest endpoint when none is free.
+- On API key connections, webhook deliveries are signed (Standard Webhooks) and deliveries with a missing or invalid signature, or a timestamp more than five minutes off, are ignored. The `webhook-id` header is the deduplication key.
+- Workspaces with a single webhook address keep using it.
+- Create Signer and the signer resolution of Request Signatures and Create Document from Template send the CPF/CNPJ in the create request.
+- CPF/CNPJ validation accepts alphanumeric CNPJs.
+- Digital certificate verification is labelled with its cost of 0.5 credit per signer (0.95 with a WhatsApp invitation).
+- `npm run lint` checks formatting with Prettier, and the publishing workflow runs it.
+
 ## 0.1.3
 
 - HTTPS requests preserve Node.js certificate verification.

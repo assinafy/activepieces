@@ -62,7 +62,7 @@ function validateContacts(requests: SignerRequest[]): void {
     }
     if (governmentId && !assinafyValues.isGovernmentId(governmentId)) {
       throw new Error(
-        `${label}: ${governmentId} is not a valid CPF (11 digits) or CNPJ (14 digits).`
+        `${label}: ${governmentId} is not a valid CPF (11 digits) or CNPJ (14 characters).`
       );
     }
     const earlier = requests.slice(0, index);
@@ -171,7 +171,8 @@ async function planSigner({
       `${label}: add the Full Name. Signers without an email address are found by their name and WhatsApp number.`
     );
   }
-  const existing = saved ?? (await findSigner({ client, signersPath, request }));
+  const existing =
+    saved ?? (await findSigner({ client, signersPath, request }));
   const who = email ?? fullName ?? whatsapp;
   if (!existing) {
     if (!fullName) {
@@ -188,8 +189,9 @@ async function planSigner({
         full_name: fullName,
         email,
         whatsapp_phone_number: whatsapp,
+        government_id: governmentId,
       }),
-      updates: assinafyValues.compact({ government_id: governmentId }),
+      updates: {},
     };
   }
   if (
@@ -261,15 +263,7 @@ async function applyPlan({
     }
     throw created.error;
   }
-  const signer = created.data;
-  if (Object.keys(plan.updates).length === 0) {
-    return signer;
-  }
-  return client.request<ApiSigner>({
-    method: HttpMethod.PUT,
-    path: `${signersPath}/${encodeURIComponent(signer.id)}`,
-    body: plan.updates,
-  });
+  return created.data;
 }
 
 async function resolveAll({

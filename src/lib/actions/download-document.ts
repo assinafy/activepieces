@@ -68,7 +68,9 @@ export const downloadDocument = createAction({
           assinafyFormat.statusLabel(document.status) ?? 'unknown'
         }). Available files: ${
           Object.keys(document.artifacts ?? {})
-            .filter((name) => Object.hasOwn(assinafyConstants.downloadableFiles, name))
+            .filter((name) =>
+              Object.hasOwn(assinafyConstants.downloadableFiles, name)
+            )
             .join(', ') || 'none'
         }.`
       );

@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { HttpMethod } from '@activepieces/pieces-common';
 import { DEDUPE_KEY_PROPERTY } from '@activepieces/pieces-framework';
 import { newEvent } from '../src/lib/triggers/new-event';
@@ -6,6 +7,7 @@ import {
   PRODUCTION,
   context,
   memoryStore,
+  oauthAuth,
   replyData,
   replyError,
   sendRequest,
@@ -49,6 +51,11 @@ const replySaved = () =>
       body: { data: { ...ours, ...(saved as object) } },
     };
   });
+const notFound = () =>
+  replyError({
+    status: 404,
+    body: { status: 404, message: 'Not found', data: null },
+  });
 const enable = async (props: Record<string, unknown> = {}) => {
   const store = memoryStore();
   await newEvent.onEnable(webhookContext({ props, extra: { store } }));
@@ -71,7 +78,9 @@ const readyEvent = {
   },
 };
 
-describe('New Event (Instant): enabling', () => {
+describe('New Event (Instant): enabling on a single webhook address', () => {
+  beforeEach(notFound);
+
   test('subscribes this flow with a secret token when the workspace has no subscription, then confirms it', async () => {
     replyError({
       status: 404,
@@ -80,7 +89,7 @@ describe('New Event (Instant): enabling', () => {
     replyData({});
     replySaved();
     const store = await enable({ notification_email: ' ops@example.com ' });
-    expect(sentRequests()[1]).toEqual(
+    expect(sentRequests()[2]).toEqual(
       expect.objectContaining({
         method: HttpMethod.PUT,
         url: subscriptionUrl,
@@ -95,10 +104,10 @@ describe('New Event (Instant): enabling', () => {
     const token = await store.get<string>('webhook_token');
     expect(
       new URL(
-        String((sentRequests()[1].body as { url: string }).url)
+        String((sentRequests()[2].body as { url: string }).url)
       ).searchParams.get('assinafy_token')
     ).toBe(token);
-    expect(sentRequests()[2]).toMatchObject({
+    expect(sentRequests()[3]).toMatchObject({
       method: HttpMethod.GET,
       url: subscriptionUrl,
     });
@@ -111,7 +120,7 @@ describe('New Event (Instant): enabling', () => {
     replyData({});
     replySaved();
     await newEvent.onEnable(webhookContext({ extra: { store } }));
-    expect(sentRequests()[1].body).toMatchObject({
+    expect(sentRequests()[2].body).toMatchObject({
       url: `${WEBHOOK_URL}?assinafy_token=${token}`,
     });
     await expect(store.get('webhook_token')).resolves.toBe(token);
@@ -125,6 +134,7 @@ describe('New Event (Instant): enabling', () => {
       await enable({ notification_email: 'ops@example.com' })
     ).get('webhook_token');
     sendRequest.mockReset();
+    notFound();
     replyData(null);
     replyData({});
     replySaved();
@@ -139,7 +149,7 @@ describe('New Event (Instant): enabling', () => {
     replyData({});
     replySaved();
     await enable({ events: ['document_ready', 'signer_rejected_document'] });
-    expect(sentRequests()[1].body).toEqual({
+    expect(sentRequests()[2].body).toEqual({
       events: ['document_ready', 'signer_rejected_document'],
       is_active: true,
       url: expect.stringMatching(tokenUrl),
@@ -162,7 +172,7 @@ describe('New Event (Instant): enabling', () => {
       'already sends its webhooks to erp.example.com'
     );
     expect((error as Error).message).not.toContain('secret');
-    expect(sentRequests()).toHaveLength(1);
+    expect(sentRequests()).toHaveLength(2);
   });
 
   test('describes an unparseable existing destination without echoing it', async () => {
@@ -181,7 +191,7 @@ describe('New Event (Instant): enabling', () => {
     replyData({});
     replySaved();
     await enable({ replace_existing: true });
-    expect(sentRequests()[1].body).toMatchObject({
+    expect(sentRequests()[2].body).toMatchObject({
       url: expect.stringMatching(tokenUrl),
       email: 'ops@example.com',
     });
@@ -192,7 +202,7 @@ describe('New Event (Instant): enabling', () => {
     await expect(newEvent.onEnable(webhookContext({}))).rejects.toThrow(
       'Enter a Delivery Notice Email'
     );
-    expect(sentRequests()).toHaveLength(1);
+    expect(sentRequests()).toHaveLength(2);
   });
 
   test('fails when another system changed the subscription at the same moment', async () => {
@@ -206,6 +216,7 @@ describe('New Event (Instant): enabling', () => {
     ).rejects.toThrow(
       'Another system changed the Assinafy webhook at the same time.'
     );
+    notFound();
     replyData(null);
     replyData({});
     replyData(ours);
@@ -215,12 +226,14 @@ describe('New Event (Instant): enabling', () => {
   });
 });
 
-describe('New Event (Instant): disabling', () => {
+describe('New Event (Instant): disabling on a single webhook address', () => {
+  beforeEach(notFound);
+
   test('inactivates the subscription it owns', async () => {
     replyData(ours);
     replyData({ is_active: false });
     await newEvent.onDisable(webhookContext({}));
-    expect(sentRequests()[1]).toMatchObject({
+    expect(sentRequests()[2]).toMatchObject({
       method: HttpMethod.PUT,
       url: `${PRODUCTION}/accounts/acc_1/webhooks/inactivate`,
     });
@@ -229,12 +242,11 @@ describe('New Event (Instant): disabling', () => {
   test('leaves a subscription owned by someone else, an inactive one or a missing one alone', async () => {
     replyData({ is_active: true, url: 'https://erp.example.com/hooks' });
     await newEvent.onDisable(webhookContext({}));
+    notFound();
     replyData({ is_active: false, url: WEBHOOK_URL });
     await newEvent.onDisable(webhookContext({}));
-    replyError({
-      status: 404,
-      body: { status: 404, message: 'Not found', data: null },
-    });
+    notFound();
+    notFound();
     await newEvent.onDisable(webhookContext({}));
     expect(
       sentRequests().every((request) => request.method === HttpMethod.GET)
@@ -417,5 +429,230 @@ describe('New Event (Instant): receiving', () => {
       body: { status: 403, message: 'Forbidden', data: null },
     });
     await expect(receive({ body: readyEvent })).rejects.toThrow('HTTP 403');
+  });
+});
+
+describe('New Event (Instant): webhook endpoints', () => {
+  const endpointsUrl = `${PRODUCTION}/accounts/acc_1/webhooks/endpoints`;
+  const secret = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw';
+  const other = {
+    id: 'ep_erp',
+    url: 'https://erp.example.com/hooks',
+    email: 'erp@example.com',
+    is_active: true,
+  };
+  const mine = {
+    id: 'ep_mine',
+    url: `${WEBHOOK_URL}?assinafy_token=earlier`,
+    email: 'ops@example.com',
+    is_active: true,
+  };
+
+  test('creates a signed endpoint for the flow and keeps its signing secret', async () => {
+    replyData([other]);
+    replyData({ ...mine, id: 'ep_new' });
+    replyData({ secret });
+    const store = await enable();
+    expect(sentRequests()[1]).toEqual(
+      expect.objectContaining({
+        method: HttpMethod.POST,
+        url: endpointsUrl,
+        body: {
+          name: 'Activepieces',
+          url: expect.stringMatching(tokenUrl),
+          email: 'erp@example.com',
+          events: ['document_ready'],
+          is_active: true,
+          signing_enabled: true,
+        },
+      })
+    );
+    expect(sentRequests()[2]).toMatchObject({
+      method: HttpMethod.GET,
+      url: `${endpointsUrl}/ep_new/secret`,
+    });
+    await expect(store.get('webhook_secret')).resolves.toBe(secret);
+  });
+
+  test('updates the endpoint already pointing at this flow', async () => {
+    replyData([other, mine]);
+    replyData(mine);
+    replyData({ secret });
+    await enable({ notification_email: 'alerts@example.com' });
+    expect(sentRequests()[1]).toMatchObject({
+      method: HttpMethod.PUT,
+      url: `${endpointsUrl}/ep_mine`,
+      body: { email: 'alerts@example.com', signing_enabled: true },
+    });
+  });
+
+  test('does not ask for a signing secret on an OAuth connection', async () => {
+    replyData([{ id: 'acc_1', name: 'Acme' }]);
+    replyData([]);
+    replyData(mine);
+    const store = memoryStore({ webhook_secret: 'stale' });
+    await newEvent.onEnable(
+      webhookContext({
+        props: { notification_email: 'ops@example.com' },
+        extra: { store, auth: oauthAuth },
+      })
+    );
+    expect(sentRequests()[2].body).toMatchObject({ signing_enabled: false });
+    expect(sentRequests()).toHaveLength(3);
+    await expect(store.get('webhook_secret')).resolves.toBeNull();
+  });
+
+  test('explains the endpoint limit, and takes over the oldest endpoint only when allowed', async () => {
+    const limit = () =>
+      replyError({
+        status: 403,
+        body: { status: 403, message: 'Limit reached', data: null },
+      });
+    replyData([other]);
+    limit();
+    await expect(enable()).rejects.toThrow(
+      'Every webhook endpoint of this Assinafy workspace is already in use'
+    );
+    sendRequest.mockReset();
+    replyData([other]);
+    limit();
+    replyData({ ...other, url: mine.url });
+    replyData({ secret });
+    await enable({ replace_existing: true });
+    expect(sentRequests()[2]).toMatchObject({
+      method: HttpMethod.PUT,
+      url: `${endpointsUrl}/ep_erp`,
+    });
+  });
+
+  test('passes other API failures through and needs an email when none is known', async () => {
+    replyData([]);
+    replyError({
+      status: 400,
+      body: { status: 400, message: 'URL already used', data: null },
+    });
+    await expect(
+      enable({ notification_email: 'ops@example.com' })
+    ).rejects.toThrow('URL already used');
+    replyData([]);
+    await expect(enable()).rejects.toThrow('Enter a Delivery Notice Email');
+  });
+
+  test('deletes only its own endpoint on disable and forgets the secret', async () => {
+    const store = memoryStore({ webhook_secret: secret });
+    replyData([other, mine]);
+    replyData([]);
+    await newEvent.onDisable(webhookContext({ extra: { store } }));
+    expect(sentRequests()[1]).toMatchObject({
+      method: HttpMethod.DELETE,
+      url: `${endpointsUrl}/ep_mine`,
+    });
+    await expect(store.get('webhook_secret')).resolves.toBeNull();
+    sendRequest.mockReset();
+    replyData([other]);
+    await newEvent.onDisable(webhookContext({}));
+    expect(sentRequests()).toHaveLength(1);
+  });
+});
+
+describe('New Event (Instant): signed deliveries', () => {
+  const secret = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw';
+  const body = {
+    ...readyEvent,
+    event: 'template_processed',
+    object: { type: 'Template', id: 'tpl_1' },
+  };
+  const rawBody = JSON.stringify(body);
+  const sign = ({ id, timestamp }: { id: string; timestamp: string }) =>
+    `v1,${createHmac(
+      'sha256',
+      Buffer.from(secret.slice('whsec_'.length), 'base64')
+    )
+      .update(`${id}.${timestamp}.${rawBody}`)
+      .digest('base64')}`;
+  const now = () => String(Math.floor(Date.now() / 1000));
+  const receive = ({
+    headers,
+    raw = rawBody as unknown,
+  }: {
+    headers: Record<string, string>;
+    raw?: unknown;
+  }) =>
+    newEvent.run(
+      webhookContext({
+        props: { events: ['template_processed'] },
+        extra: {
+          store: memoryStore({
+            webhook_token: 'token',
+            webhook_secret: secret,
+          }),
+          payload: {
+            body,
+            rawBody: raw,
+            headers,
+            queryParams: { assinafy_token: 'token' },
+          },
+        },
+      })
+    );
+
+  test('matches the Standard Webhooks reference signature', () => {
+    expect(
+      createHmac('sha256', Buffer.from(secret.slice(6), 'base64'))
+        .update('msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{"test": 2432232314}')
+        .digest('base64')
+    ).toBe('g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=');
+  });
+
+  test('accepts a valid signature among several and dedupes by webhook-id', async () => {
+    const timestamp = now();
+    const headers = {
+      'Webhook-Id': 'msg_1',
+      'webhook-timestamp': timestamp,
+      'webhook-signature': `v1,AAAA ${sign({ id: 'msg_1', timestamp })}`,
+    };
+    await expect(receive({ headers })).resolves.toEqual([
+      {
+        ...assinafyFormat.event({ event: body, document: null }),
+        [DEDUPE_KEY_PROPERTY]: 'msg_1',
+      },
+    ]);
+    await expect(
+      receive({ headers, raw: Buffer.from(rawBody) })
+    ).resolves.toHaveLength(1);
+  });
+
+  test('drops unsigned, tampered, replayed or unreadable deliveries', async () => {
+    const timestamp = now();
+    const valid = {
+      'webhook-id': 'msg_1',
+      'webhook-timestamp': timestamp,
+      'webhook-signature': sign({ id: 'msg_1', timestamp }),
+    };
+    const old = String(Number(timestamp) - 600);
+    for (const [headers, raw] of [
+      [{}, rawBody],
+      [{ ...valid, 'webhook-signature': 'v1,AAAA' }, rawBody],
+      [
+        { ...valid, 'webhook-signature': valid['webhook-signature'].slice(3) },
+        rawBody,
+      ],
+      [{ ...valid, 'webhook-id': 'msg_2' }, rawBody],
+      [{ ...valid, 'webhook-timestamp': 'later' }, rawBody],
+      [
+        {
+          ...valid,
+          'webhook-timestamp': old,
+          'webhook-signature': sign({ id: 'msg_1', timestamp: old }),
+        },
+        rawBody,
+      ],
+      [valid, `${rawBody} `],
+      [valid, null],
+    ] as const) {
+      await expect(
+        receive({ headers: headers as Record<string, string>, raw })
+      ).resolves.toEqual([]);
+    }
   });
 });

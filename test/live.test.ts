@@ -3,9 +3,13 @@ import {
   ApFile,
   OutputSchema,
 } from '@activepieces/pieces-framework';
-import { HttpMethod } from '@activepieces/pieces-common';
+import { HttpError, HttpMethod, httpClient } from '@activepieces/pieces-common';
 import { assinafyAuth } from '../src/lib/auth';
-import { AssinafyAuthValue, AssinafyApiError, assinafyApi } from '../src/lib/common/client';
+import {
+  AssinafyAuthValue,
+  AssinafyApiError,
+  assinafyApi,
+} from '../src/lib/common/client';
 import { createSigner } from '../src/lib/actions/create-signer';
 import { deleteDocument } from '../src/lib/actions/delete-document';
 import { downloadDocument } from '../src/lib/actions/download-document';
@@ -28,6 +32,30 @@ import { assinafyDocuments } from '../src/lib/common/documents';
 import { memoryStore } from './helpers';
 
 vi.unmock('@activepieces/pieces-common');
+
+// The sandbox rate-limits bursts with HTTP 429 ("Try again in N seconds");
+// a rate-limited request was not processed, so it is safe to send again.
+const send = httpClient.sendRequest.bind(httpClient);
+vi.spyOn(httpClient, 'sendRequest').mockImplementation(async (request) => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await send(request);
+    } catch (error) {
+      const response =
+        error instanceof HttpError
+          ? (error.response as { status: number; body: unknown })
+          : undefined;
+      if (response?.status !== 429 || attempt === 6) {
+        throw error;
+      }
+      const seconds = Number(
+        /(\d+) seconds?/.exec(JSON.stringify(response.body))?.[1] ?? 30
+      );
+      await new Promise((resolve) => setTimeout(resolve, (seconds + 1) * 1000));
+    }
+  }
+});
+vi.setConfig({ testTimeout: 15 * 60_000, hookTimeout: 15 * 60_000 });
 
 const describedKeys = (schema: OutputSchema) =>
   schema.fields.map((field) => field.value ?? field.key);
@@ -108,7 +136,10 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
   afterAll(async () => {
     vi.unstubAllGlobals();
     for (const id of templateDocumentIds) {
-      await client.request({ method: HttpMethod.DELETE, path: `/documents/${id}` });
+      await client.request({
+        method: HttpMethod.DELETE,
+        path: `/documents/${id}`,
+      });
     }
     if (documentId) {
       await client
@@ -217,23 +248,34 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
       queryParams: { status: 'certificated', 'per-page': 1 },
     });
     if (!signed[0]) {
-      console.info('No signed document is available for final-artifact downloads.');
+      console.info(
+        'No signed document is available for final-artifact downloads.'
+      );
       return;
     }
     const document = await client.request<ApiDocument>({
       method: HttpMethod.GET,
       path: `/documents/${signed[0].id}`,
     });
-    const artifacts = Object.keys(document.artifacts ?? {}).filter(
-      (type) => Object.hasOwn(assinafyConstants.downloadableFiles, type)
+    const artifacts = Object.keys(document.artifacts ?? {}).filter((type) =>
+      Object.hasOwn(assinafyConstants.downloadableFiles, type)
     );
-    expect(artifacts).toEqual(expect.arrayContaining(['certificated', 'certificate-page', 'bundle']));
+    expect(artifacts).toEqual(
+      expect.arrayContaining(['certificated', 'certificate-page', 'bundle'])
+    );
     for (const file_type of artifacts) {
-      const download = liveContext({ props: { document: document.id, file_type } });
+      const download = liveContext({
+        props: { document: document.id, file_type },
+      });
       const result = await downloadDocument.run(download.ctx);
-      expect(Object.keys(result as object)).toEqual(describedKeys(assinafyOutputSchemas.download));
-      expect(download.written[0].data.subarray(0, file_type === 'bundle' ? 2 : 4).toString())
-        .toBe(file_type === 'bundle' ? 'PK' : '%PDF');
+      expect(Object.keys(result as object)).toEqual(
+        describedKeys(assinafyOutputSchemas.download)
+      );
+      expect(
+        download.written[0].data
+          .subarray(0, file_type === 'bundle' ? 2 : 4)
+          .toString()
+      ).toBe(file_type === 'bundle' ? 'PK' : '%PDF');
     }
   }, 30_000);
 
@@ -366,8 +408,13 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
 
   test('checks cost estimates or explicit plan restrictions for every verification method', async () => {
     expect(documentId).toBeDefined();
-    await assinafyDocuments.waitUntilProcessed({ client, documentId: documentId! });
-    for (const method of Object.values(assinafyConstants.signerVerificationMethods)) {
+    await assinafyDocuments.waitUntilProcessed({
+      client,
+      documentId: documentId!,
+    });
+    for (const method of Object.values(
+      assinafyConstants.signerVerificationMethods
+    )) {
       try {
         const cost = await client.request<{
           total_credits: number;
@@ -377,10 +424,12 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
           path: `/documents/${documentId}/assignments/estimate-cost`,
           body: {
             method: 'virtual',
-            signers: [{
-              verification_method: method.verification_method,
-              notification_methods: [method.notification_method],
-            }],
+            signers: [
+              {
+                verification_method: method.verification_method,
+                notification_methods: [method.notification_method],
+              },
+            ],
           },
         });
         expect(Number.isFinite(cost.total_credits)).toBe(true);
@@ -390,7 +439,9 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
         if (env['ASSINAFY_LIVE_REQUIRE_PAID_METHODS'] === '1') throw error;
         expect(error).toBeInstanceOf(AssinafyApiError);
         expect((error as AssinafyApiError).status).toBe(403);
-        expect((error as Error).message).toMatch(/plano|certificado|disponível/i);
+        expect((error as Error).message).toMatch(
+          /plano|certificado|disponível/i
+        );
         console.info(
           `${method.verification_method}/${method.notification_method}: workspace plan does not allow this method`
         );
@@ -405,42 +456,58 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
         method: HttpMethod.GET,
         path: await client.accountPath('/templates'),
       });
-      const template = templates.find((candidate) =>
-        candidate.status?.toLowerCase() === 'ready' &&
-        candidate.roles?.filter(
-          (role) => role.assignment_type?.toLowerCase() !== 'editor'
-        ).length === 1 &&
-        !(candidate.pages ?? []).some((page) =>
-          (page.fields ?? []).some((field) => candidate.roles?.some(
-            (role) => role.id === field.role_id &&
-              role.assignment_type?.toLowerCase() === 'editor'
-          ))
-        )
+      const template = templates.find(
+        (candidate) =>
+          candidate.status?.toLowerCase() === 'ready' &&
+          candidate.roles?.filter(
+            (role) => role.assignment_type?.toLowerCase() !== 'editor'
+          ).length === 1 &&
+          !(candidate.pages ?? []).some((page) =>
+            (page.fields ?? []).some((field) =>
+              candidate.roles?.some(
+                (role) =>
+                  role.id === field.role_id &&
+                  role.assignment_type?.toLowerCase() === 'editor'
+              )
+            )
+          )
       );
-      expect(template, 'Create a ready sandbox template with one signer role and no editor fields').toBeDefined();
+      expect(
+        template,
+        'Create a ready sandbox template with one signer role and no editor fields'
+      ).toBeDefined();
       const role = template!.roles!.find(
         (candidate) => candidate.assignment_type?.toLowerCase() !== 'editor'
       )!;
-      const document = await createDocumentFromTemplate.run(liveContext({
-        props: {
-          template: template!.id,
-          signers: {
-            [`email_${role.id}`]: `ap-live-${runId}@example.com`,
-            [`name_${role.id}`]: `Live ${runId}`,
+      const document = (await createDocumentFromTemplate.run(
+        liveContext({
+          props: {
+            template: template!.id,
+            signers: {
+              [`email_${role.id}`]: `ap-live-${runId}@example.com`,
+              [`name_${role.id}`]: `Live ${runId}`,
+            },
+            document_name: `ap-template-${runId}.pdf`,
           },
-          document_name: `ap-template-${runId}.pdf`,
-        },
-      }).ctx) as { id: string; template_id: string; assignment_id: string | null };
+        }).ctx
+      )) as { id: string; template_id: string; assignment_id: string | null };
       templateDocumentIds.add(document.id);
       expect(document.template_id).toBe(template!.id);
-      expect(Object.keys(document)).toEqual(describedKeys(assinafyOutputSchemas.document));
-      await vi.waitFor(async () => {
-        const current = await getDocument.run(liveContext({
-          props: { document: document.id },
-        }).ctx) as { assignment_id: string | null; status: string };
-        expect(current.assignment_id).toBeTruthy();
-        expect(current.status).toBe('pending_signature');
-      }, { timeout: 30_000, interval: 1000 });
+      expect(Object.keys(document)).toEqual(
+        describedKeys(assinafyOutputSchemas.document)
+      );
+      await vi.waitFor(
+        async () => {
+          const current = (await getDocument.run(
+            liveContext({
+              props: { document: document.id },
+            }).ctx
+          )) as { assignment_id: string | null; status: string };
+          expect(current.assignment_id).toBeTruthy();
+          expect(current.status).toBe('pending_signature');
+        },
+        { timeout: 30_000, interval: 1000 }
+      );
     },
     40_000
   );
@@ -513,43 +580,73 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
   );
 
   test.skipIf(env['ASSINAFY_LIVE_WEBHOOK'] !== '1')(
-    'subscribes and unsubscribes the webhook it owns',
+    'registers and removes the webhook it owns',
     async () => {
       const webhookUrl = `https://automations.example.com/api/v1/webhooks/ap-live-${runId}`;
+      const ownUrl = new RegExp(
+        `^${webhookUrl}\\?assinafy_token=[0-9a-f]{48}$`
+      );
       const props = {
         events: ['document_ready'],
         notification_email:
           env['ASSINAFY_LIVE_WEBHOOK_EMAIL'] ?? 'webhooks@example.com',
         replace_existing: false,
       };
-      const path = await client.accountPath('/webhooks/subscriptions');
-      const original = await client.find<{
-        events?: string[];
-        is_active?: boolean;
-        url?: string | null;
-        email?: string | null;
-      }>({
-        method: HttpMethod.GET,
-        path,
-      });
-      try {
-        await newEvent.onEnable(
-          liveContext({ props, extra: { webhookUrl } }).ctx
-        );
-        expect(
-          await client.find({ method: HttpMethod.GET, path })
-        ).toMatchObject({
-          url: expect.stringMatching(
-            new RegExp(`^${webhookUrl}\\?assinafy_token=[0-9a-f]{48}$`)
-          ),
-          is_active: true,
+      const endpointsPath = await client.accountPath('/webhooks/endpoints');
+      const endpoints = () =>
+        client.list<{ url?: string }>({
+          method: HttpMethod.GET,
+          path: endpointsPath,
         });
-        await newEvent.onDisable(
-          liveContext({ props, extra: { webhookUrl } }).ctx
-        );
-        expect(
-          await client.find({ method: HttpMethod.GET, path })
-        ).toMatchObject({ is_active: false });
+      const supportsEndpoints = await endpoints().then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof AssinafyApiError && error.status === 404) {
+            return false;
+          }
+          throw error;
+        }
+      );
+      const path = await client.accountPath('/webhooks/subscriptions');
+      const original = supportsEndpoints
+        ? null
+        : await client.find<{
+            events?: string[];
+            is_active?: boolean;
+            url?: string | null;
+            email?: string | null;
+          }>({ method: HttpMethod.GET, path });
+      const store = memoryStore();
+      const { ctx } = liveContext({ props, extra: { webhookUrl, store } });
+      try {
+        await newEvent.onEnable(ctx);
+        if (supportsEndpoints) {
+          expect(
+            (await endpoints()).filter((endpoint) =>
+              ownUrl.test(endpoint.url ?? '')
+            )
+          ).toHaveLength(1);
+          expect(await store.get('webhook_secret')).toMatch(/^whsec_/);
+        } else {
+          expect(
+            await client.find({ method: HttpMethod.GET, path })
+          ).toMatchObject({
+            url: expect.stringMatching(ownUrl),
+            is_active: true,
+          });
+        }
+        await newEvent.onDisable(ctx);
+        if (supportsEndpoints) {
+          expect(
+            (await endpoints()).some((endpoint) =>
+              ownUrl.test(endpoint.url ?? '')
+            )
+          ).toBe(false);
+        } else {
+          expect(
+            await client.find({ method: HttpMethod.GET, path })
+          ).toMatchObject({ is_active: false });
+        }
       } finally {
         if (original?.url && original.email) {
           await client.request({

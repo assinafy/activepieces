@@ -123,7 +123,7 @@ describe('validateContacts', () => {
       expect(() =>
         validate([{ email: 'maria@example.com', governmentId: invalid }])
       ).toThrow(
-        `Signer 1: ${invalid} is not a valid CPF (11 digits) or CNPJ (14 digits).`
+        `Signer 1: ${invalid} is not a valid CPF (11 digits) or CNPJ (14 characters).`
       );
     }
     expect(() =>
@@ -371,15 +371,38 @@ describe('resolve', () => {
   test('validates the concurrent winner before reusing it and adds a missing phone', async () => {
     replyData([]);
     replyError({ status: 400, body: { message: 'Email already exists' } });
-    replyData([{ ...apiSigner, email: 'new@example.com', whatsapp_phone_number: '+5511911110000' }]);
-    await expect(resolve({ email: 'new@example.com', fullName: 'New Person', whatsapp: '+5548999990000' })).rejects.toThrow('different WhatsApp number');
+    replyData([
+      {
+        ...apiSigner,
+        email: 'new@example.com',
+        whatsapp_phone_number: '+5511911110000',
+      },
+    ]);
+    await expect(
+      resolve({
+        email: 'new@example.com',
+        fullName: 'New Person',
+        whatsapp: '+5548999990000',
+      })
+    ).rejects.toThrow('different WhatsApp number');
     sendRequest.mockReset();
     replyData([]);
     replyError({ status: 400, body: { message: 'Email already exists' } });
     replyData([{ ...apiSigner, email: 'new@example.com' }]);
-    replyData({ ...apiSigner, email: 'new@example.com', whatsapp_phone_number: '+5548999990000' });
-    await resolve({ email: 'new@example.com', fullName: 'New Person', whatsapp: '+5548999990000' });
-    expect(sentRequests().at(-1)).toMatchObject({ method: HttpMethod.PUT, body: { whatsapp_phone_number: '+5548999990000' } });
+    replyData({
+      ...apiSigner,
+      email: 'new@example.com',
+      whatsapp_phone_number: '+5548999990000',
+    });
+    await resolve({
+      email: 'new@example.com',
+      fullName: 'New Person',
+      whatsapp: '+5548999990000',
+    });
+    expect(sentRequests().at(-1)).toMatchObject({
+      method: HttpMethod.PUT,
+      body: { whatsapp_phone_number: '+5548999990000' },
+    });
   });
 
   test('an empty page means no match', async () => {
@@ -424,9 +447,8 @@ describe('resolve', () => {
     expect(sentRequests()).toHaveLength(1);
   });
 
-  test('sets the CPF of a new signer with an update after creating it', async () => {
+  test('creates a new signer with its CPF in one request', async () => {
     replyData([]);
-    replyData({ ...apiSigner, id: 'sig_new' });
     replyData({ ...apiSigner, id: 'sig_new' });
     await resolve({
       email: 'new@example.com',
@@ -436,12 +458,9 @@ describe('resolve', () => {
     expect(sentRequests()[1].body).toEqual({
       full_name: 'New Person',
       email: 'new@example.com',
+      government_id: '390.533.447-05',
     });
-    expect(sentRequests()[2]).toMatchObject({
-      method: HttpMethod.PUT,
-      url: `${signersUrl}/sig_new`,
-      body: { government_id: '390.533.447-05' },
-    });
+    expect(sentRequests()).toHaveLength(2);
   });
 
   test('changes nothing when the stored details already match', async () => {

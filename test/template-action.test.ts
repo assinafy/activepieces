@@ -133,32 +133,38 @@ describe('Create Document from Template form', () => {
 
 describe('Create Document from Template', () => {
   test('signing order ignores copy receiver roles', async () => {
-    replyData([{
-      ...apiTemplate,
-      roles: [
-        { id: 'role_a', assignment_type: 'Signer' },
-        { id: 'role_copy', assignment_type: 'CopyReceiver' },
-      ],
-    }]);
+    replyData([
+      {
+        ...apiTemplate,
+        roles: [
+          { id: 'role_a', assignment_type: 'Signer' },
+          { id: 'role_copy', assignment_type: 'CopyReceiver' },
+        ],
+      },
+    ]);
     replyData([apiSigner]);
     replyData([{ ...apiSigner, id: 'sig_copy', email: 'copy@example.com' }]);
     replyData(apiDocument);
-    await createDocumentFromTemplate.run(context({ props: {
-      template: 'tpl_1',
-      signers: {
-        email_role_a: 'maria@example.com', step_role_a: '1',
-        email_role_copy: 'copy@example.com',
-      },
-    } }));
-    expect(sentRequests().at(-1)?.body).toMatchObject({ signers: [
-      { role_id: 'role_a', step: 1 }, { role_id: 'role_copy' },
-    ] });
+    await createDocumentFromTemplate.run(
+      context({
+        props: {
+          template: 'tpl_1',
+          signers: {
+            email_role_a: 'maria@example.com',
+            step_role_a: '1',
+            email_role_copy: 'copy@example.com',
+          },
+        },
+      })
+    );
+    expect(sentRequests().at(-1)?.body).toMatchObject({
+      signers: [{ role_id: 'role_a', step: 1 }, { role_id: 'role_copy' }],
+    });
   });
 
   test('resolves a signer per role and sends the template document request', async () => {
     replyData([apiTemplate]);
     replyData([]);
-    replyData({ ...apiSigner, id: 'sig_client' });
     replyData({ ...apiSigner, id: 'sig_client' });
     replyData(apiDocument);
     const result = await createDocumentFromTemplate.run(
@@ -189,12 +195,9 @@ describe('Create Document from Template', () => {
     expect(sentRequests()[2].body).toEqual({
       full_name: 'Client Person',
       email: 'client@example.com',
+      government_id: '390.533.447-05',
     });
     expect(sentRequests()[3]).toMatchObject({
-      method: HttpMethod.PUT,
-      body: { government_id: '390.533.447-05' },
-    });
-    expect(sentRequests()[4]).toMatchObject({
       method: HttpMethod.POST,
       url: `${PRODUCTION}/accounts/acc_1/templates/tpl_1/documents`,
       body: {

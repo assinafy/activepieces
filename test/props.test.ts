@@ -10,7 +10,7 @@ import {
   sentRequests,
 } from './helpers';
 
-const search = (searchValue?: string) => ({ searchValue } as never);
+const search = (searchValue?: string) => ({ searchValue }) as never;
 const {
   document: documentDropdown,
   documentSigner: documentSignerDropdown,

@@ -6,7 +6,11 @@ import {
 } from '@activepieces/pieces-framework';
 import { HttpMethod } from '@activepieces/pieces-common';
 import { assinafyAuth } from '../auth';
-import { AssinafyApiError, AssinafyClient, assinafyApi } from '../common/client';
+import {
+  AssinafyApiError,
+  AssinafyClient,
+  assinafyApi,
+} from '../common/client';
 import { assinafyConstants } from '../common/constants';
 import { ApiDocument, assinafyFormat } from '../common/format';
 import { assinafySample } from '../common/sample';

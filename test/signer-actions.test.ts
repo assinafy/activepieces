@@ -69,8 +69,7 @@ describe('Create Signer', () => {
     });
   });
 
-  test('sets the CPF/CNPJ with a follow-up update', async () => {
-    replyData(apiSigner);
+  test('sends the CPF/CNPJ with the new signer', async () => {
     replyData(apiSigner);
     const result = await createSigner.run(
       context({
@@ -85,12 +84,9 @@ describe('Create Signer', () => {
     expect(sentRequests()[0].body).toEqual({
       full_name: 'Maria Silva',
       whatsapp_phone_number: '+5548999990000',
+      government_id: '39053344705',
     });
-    expect(sentRequests()[1]).toMatchObject({
-      method: HttpMethod.PUT,
-      url: `${signersUrl}/sig_1`,
-      body: { government_id: '39053344705' },
-    });
+    expect(sentRequests()).toHaveLength(1);
   });
 
   test('checks the CPF/CNPJ before creating anything', async () => {
@@ -98,7 +94,7 @@ describe('Create Signer', () => {
       createSigner.run(
         context({ props: { full_name: 'Maria Silva', government_id: '12345' } })
       )
-    ).rejects.toThrow('A CPF has 11 digits and a CNPJ has 14 digits.');
+    ).rejects.toThrow('A CPF has 11 digits and a CNPJ has 14 characters.');
     expect(sentRequests()).toHaveLength(0);
   });
 });

@@ -126,6 +126,11 @@ describe('values', () => {
   test('isGovernmentId accepts 11-digit CPFs and 14-digit CNPJs', () => {
     expect(isGovernmentId('390.533.447-05')).toBe(true);
     expect(isGovernmentId('11.222.333/0001-81')).toBe(true);
+    expect(isGovernmentId('12.ABC.345/01DE-35')).toBe(true);
+    expect(isGovernmentId('12abc34501de35')).toBe(true);
+    expect(isGovernmentId('12.ABC.345/01DE-36')).toBe(false);
+    expect(isGovernmentId('12.ABC.345/01DE-3A')).toBe(false);
+    expect(isGovernmentId('AAAAAAAAAAAAAA')).toBe(false);
     expect(isGovernmentId('123')).toBe(false);
   });
 });

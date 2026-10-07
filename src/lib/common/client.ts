@@ -147,7 +147,7 @@ async function callOptional<T>({
     throw error;
   }
   return assinafyValues.isRecord(response.body)
-    ? response.body.data ?? null
+    ? (response.body.data ?? null)
     : null;
 }
 
@@ -364,8 +364,8 @@ async function parseJson(body: unknown): Promise<unknown> {
   if (typeof body !== 'string') {
     return body;
   }
-  const { data, error } = await tryCatch(
-    async (): Promise<unknown> => JSON.parse(body)
+  const { data, error } = await tryCatch(async (): Promise<unknown> =>
+    JSON.parse(body)
   );
   return error ? body : data;
 }
@@ -433,6 +433,7 @@ export const assinafyApi = {
   forAuth,
   forTrigger,
   fromCredentials,
+  headerValue,
   oauthCredentials,
 };
 

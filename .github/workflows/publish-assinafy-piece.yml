@@ -41,8 +41,9 @@ jobs:
             exit 1
           fi
 
-      - name: Typecheck and test the piece
+      - name: Lint, typecheck and test the piece
         run: |
+          npm run lint
           npm run typecheck
           npm run test:coverage
 

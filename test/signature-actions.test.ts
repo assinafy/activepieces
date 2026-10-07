@@ -224,7 +224,7 @@ describe('Request Signatures', () => {
       },
       {
         signers: [{ email: 'a@example.com', government_id: '123' }],
-        error: 'is not a valid CPF (11 digits) or CNPJ (14 digits)',
+        error: 'is not a valid CPF (11 digits) or CNPJ (14 characters)',
       },
       {
         signers: [{ email: 'a@example.com' }, { email: 'A@example.com' }],

@@ -282,7 +282,7 @@ Retorna uma lista de signatários:
 
 Salva um novo signatário no espaço de trabalho. **Request Signatures** cria os signatários ausentes por conta própria, então use esta ação apenas para cadastrar pessoas com antecedência. Ela falha quando já existe um signatário com o mesmo e-mail.
 
-- Endpoint: `POST /v1/accounts/{accountId}/signers` e depois `PUT /v1/accounts/{accountId}/signers/{signerId}` quando um CPF/CNPJ é informado (o endpoint de criação não o aceita)
+- Endpoint: `POST /v1/accounts/{accountId}/signers`
 - Entradas: **Full Name** (obrigatório), **Email**, **WhatsApp Number**, **CPF or CNPJ**
 
 Retorna o formato de signatário mostrado em [Find Signers](#find-signers).
@@ -307,17 +307,20 @@ Toda entrada de documento, signatário e modelo nas ações acima é uma lista s
 | Gatilho | Quando dispara | Entrega |
 |---|---|---|
 | Document Signed | Todos os signatários assinaram e o PDF assinado está pronto, para assinaturas concluídas depois que o fluxo foi ativado | Verificado a cada poucos minutos. Qualquer número de fluxos pode usá-lo. |
-| New Event (Instant) | Os eventos da Assinafy escolhidos acontecem: documento assinado por todos, signatário assinou, signatário recusou, documento cancelado e outros | Instantânea, pelo webhook do espaço de trabalho |
+| New Event (Instant) | Os eventos da Assinafy escolhidos acontecem: documento assinado por todos, signatário assinou, signatário recusou, documento cancelado e outros | Instantânea, por um endpoint de webhook registrado para o fluxo |
 
-**New Event (Instant)** usa o webhook do espaço de trabalho (`GET/PUT /v1/accounts/{accountId}/webhooks/subscriptions`), e a Assinafy entrega os eventos de cada espaço de trabalho para um único endereço:
+**New Event (Instant)** registra o próprio endpoint de webhook (`/v1/accounts/{accountId}/webhooks/endpoints`):
 
-- Use-o em apenas um fluxo ativo por espaço de trabalho; adicione uma etapa Router para tratar vários tipos de evento.
-- Se o espaço de trabalho já entrega eventos para outro sistema, o fluxo não é iniciado a menos que **Replace Existing Webhook** esteja ativado.
-- Desativar o fluxo interrompe o webhook, mas apenas enquanto ele ainda aponta para esse fluxo.
-- **Delivery Notice Email** recebe os avisos da Assinafy sobre falhas de entrega. É obrigatório apenas quando o espaço de trabalho ainda não tem um endereço.
+- Um espaço de trabalho da Assinafy tem 1 endpoint de webhook, ou até 3 nos planos pagos. Cada fluxo ativo que usa este gatilho ocupa um endpoint, chamado `Activepieces`; adicione uma etapa Router para tratar vários tipos de evento em um único fluxo.
+- Quando todos os endpoints estão ocupados, o fluxo não é iniciado a menos que **Replace Existing Webhook** esteja ativado. Essa opção reutiliza o endpoint mais antigo do espaço de trabalho, que deixa de entregar para o sistema atual dele.
+- Desativar o fluxo exclui o endpoint dele, o que libera a vaga. Um endpoint que não aponta mais para o fluxo não é alterado.
+- **Delivery Notice Email** recebe os avisos da Assinafy sobre falhas de entrega. Quando fica em branco, é usado o endereço do endpoint do fluxo ou do endpoint mais antigo.
+- Em uma conexão por chave de API, o endpoint é criado com assinatura ativada. Toda entrega traz então uma assinatura [Standard Webhooks](https://www.standardwebhooks.com) (`webhook-id`, `webhook-timestamp`, `webhook-signature`), e o fluxo ignora entregas cuja assinatura HMAC-SHA256 não corresponde ao segredo do endpoint ou cujo horário difere em mais de cinco minutos. O fluxo lê o segredo quando é ativado; depois de trocar o segredo na Assinafy, desative e ative o fluxo de novo.
+- A Assinafy não fornece o segredo de assinatura a aplicações OAuth, então em uma conexão Assinafy Account o endpoint é criado sem assinatura.
+- Cada fluxo também registra seu endereço com um token aleatório, e requisições sem ele são ignoradas. O token continua o mesmo quando o fluxo é republicado ou desativado e ativado de novo, então entregas já a caminho ainda valem.
 - Em eventos de documento, o fluxo recebe o estado atual do documento, lido da API quando o evento chega. Se ele não puder ser lido (por exemplo, depois que o documento foi excluído), é usada a cópia enviada com o evento.
-- A Assinafy tenta novamente uma entrega falha uma única vez. O Activepieces descarta um evento repetido que chega em até 30 segundos; para repetições posteriores, `event_id` identifica o evento.
-- Cada fluxo registra seu endereço de webhook com um segredo aleatório, e requisições sem ele são ignoradas. O segredo continua o mesmo quando o fluxo é republicado ou desativado e ativado de novo, então entregas já a caminho ainda valem. A Assinafy não assina suas requisições de webhook, então mantenha o endereço em sigilo.
+- A Assinafy tenta novamente uma entrega falha uma única vez com o mesmo `webhook-id`, que o fluxo usa como chave de deduplicação.
+- Quando o espaço de trabalho aceita apenas um endereço de webhook (o caminho de endpoints responde `404`), o fluxo usa `/v1/accounts/{accountId}/webhooks/subscriptions`. Nesse caso, ele se recusa a assumir um endereço que entrega para outro sistema a menos que **Replace Existing Webhook** esteja ativado, e desativar o fluxo inativa o endereço enquanto ele ainda aponta para o fluxo.
 
 O documento fica assinado assim que o último signatário assina, mas o PDF assinado só fica disponível depois que a certificação termina. **Document Signed** dispara depois da certificação; **Download Document** também aguarda até um minuto enquanto a certificação ainda está em andamento.
 
@@ -330,9 +333,9 @@ O documento fica assinado assim que o último signatário assina, mas o PDF assi
 - O signatário é identificado pelo e-mail, ou pelo nome e número de WhatsApp quando não há e-mail, então informe o nome completo de um signatário que tem apenas número de WhatsApp. Números de WhatsApp correspondem independentemente da formatação, e um número sem o código do país corresponde ao número internacional cadastrado.
 - Se ninguém corresponder, um signatário é criado, o que exige o nome completo.
 - Um número de WhatsApp ausente é adicionado a um signatário existente. Um número de WhatsApp diferente do cadastrado interrompe a etapa com um erro, em vez de usar o valor cadastrado.
-- O CPF/CNPJ só é salvo quando o signatário é criado. A Assinafy não mostra CPFs cadastrados, então a etapa nunca altera o CPF de um signatário existente; para isso, use **Update Signer**.
+- O CPF/CNPJ só é salvo quando o signatário é criado; a etapa nunca altera o CPF/CNPJ de um signatário existente. Para isso, use **Update Signer**.
 - Altere dados cadastrados com **Update Signer**; alterar um canal invalida convites já enviados.
-- Toda linha de signatário e destinatário de cópia é verificada, e todos eles são consultados, antes de criar ou alterar qualquer signatário: um contato para o canal escolhido, um CPF ou CNPJ válido (incluindo os dígitos verificadores), nenhum e-mail ou número de WhatsApp repetido, nenhuma pessoa alcançada duas vezes por dados diferentes e as regras de ordem de assinatura abaixo.
+- Toda linha de signatário e destinatário de cópia é verificada, e todos eles são consultados, antes de criar ou alterar qualquer signatário: um contato para o canal escolhido, um CPF ou CNPJ válido (incluindo os dígitos verificadores; CNPJs podem ser alfanuméricos), nenhum e-mail ou número de WhatsApp repetido, nenhuma pessoa alcançada duas vezes por dados diferentes e as regras de ordem de assinatura abaixo.
 
 ## Verificação e custos
 
@@ -342,8 +345,8 @@ Os signatários comprovam a identidade durante a assinatura com um de quatro mé
 |---|---|---|
 | Código por e-mail (padrão) | E-mail | Gratuito |
 | Código por WhatsApp | WhatsApp | 0,45 crédito (planos pagos) |
-| Certificado digital ICP-Brasil (A1 ou A3) | E-mail | 2 créditos |
-| Certificado digital ICP-Brasil (A1 ou A3) | WhatsApp | 2,45 créditos |
+| Certificado digital ICP-Brasil (A1 ou A3) | E-mail | 0,5 crédito |
+| Certificado digital ICP-Brasil (A1 ou A3) | WhatsApp | 0,95 crédito (0,5 pela assinatura com certificado mais 0,45 pelo convite por WhatsApp) |
 
 Quando **Verification** fica em branco, é usado o e-mail, ou o WhatsApp quando o signatário tem apenas número de WhatsApp. A assinatura com certificado digital exige o recurso Certificado Digital no plano da Assinafy, o CPF ou CNPJ do signatário cadastrado na Assinafy (informado na etapa quando o signatário é novo, ou definido com **Update Signer**) e o signatário sozinho na sua etapa da ordem de assinatura. Toda solicitação de assinatura também usa um documento do plano, ou um crédito quando a franquia acaba.
 
@@ -537,6 +540,7 @@ Create Signer and Update Signer return:
     "full_name": "Maria Silva",
     "email": "maria@example.com",
     "whatsapp_phone_number": null,
+    "government_id": "39053344705",
     "has_accepted_terms": false
   }
 }
@@ -554,7 +558,7 @@ Their complete **signer output**, and each entry returned by Find Signers, is:
 }
 ```
 
-CPF/CNPJ is write-only in these responses. Find Signers returns an array of signer outputs, or `[]`.
+The signer output leaves out the CPF/CNPJ. Find Signers returns an array of signer outputs, or `[]`.
 
 ### Action inputs and HTTP requests
 
@@ -865,19 +869,12 @@ HTTP: `POST /accounts/{accountId}/signers`:
 {
   "full_name": "Maria Silva",
   "email": "maria@example.com",
-  "whatsapp_phone_number": "+5548999990000"
-}
-```
-
-When government_id is supplied, HTTP then sends `PUT /accounts/{accountId}/signers/{createdSignerId}`:
-
-```json
-{
+  "whatsapp_phone_number": "+5548999990000",
   "government_id": "390.533.447-05"
 }
 ```
 
-Both calls return the [signer payload](#signer-payload). The piece returns the final signer output. A failed follow-up update leaves the created signer in the workspace; use Update Signer to finish setting the CPF/CNPJ.
+Empty inputs are left out. The call returns the [signer payload](#signer-payload), and the piece returns the signer output.
 
 #### Update Signer payload
 
@@ -954,16 +951,16 @@ Response body (example balances):
   "message": "",
   "data": {
     "documents": 1,
-    "credits": 2,
+    "credits": 0.5,
     "needs_extra_document": false,
     "extra_document_cost": 0,
-    "total_credits": 2,
+    "total_credits": 0.5,
     "breakdown": [
       {
         "code": "SignatureDigitalCertificate",
         "quantity": 1,
-        "unit_cost": 2,
-        "cost": 2,
+        "unit_cost": 0.5,
+        "cost": 0.5,
         "name": "Digital certificate signature"
       }
     ],
@@ -1011,7 +1008,60 @@ Each emitted item is the complete [document output](#document-payload), with sig
 }
 ```
 
-Enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, then sends `PUT` to the same path:
+Enable lists `GET /accounts/{accountId}/webhooks/endpoints`. When no endpoint points at the flow, it sends `POST /accounts/{accountId}/webhooks/endpoints`; when one does, it sends `PUT /accounts/{accountId}/webhooks/endpoints/{endpointId}` with the same body:
+
+```json
+{
+  "name": "Activepieces",
+  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
+  "email": "ops@example.com",
+  "events": [
+    "document_ready",
+    "signer_rejected_document"
+  ],
+  "is_active": true,
+  "signing_enabled": true
+}
+```
+
+`signing_enabled` is `false` on an Assinafy Account connection. A `403` on create means every endpoint is taken; with **Replace Existing Webhook** on, the same body is sent with `PUT` to the oldest endpoint. The API returns the endpoint:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "id": "65f1c2a9b3e4d5f60718293a4b5c6d7e",
+    "name": "Activepieces",
+    "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
+    "email": "ops@example.com",
+    "events": [
+      "document_ready",
+      "signer_rejected_document"
+    ],
+    "is_active": true,
+    "signing_enabled": true,
+    "created_at": "2026-10-01T12:00:00Z",
+    "updated_at": "2026-10-01T12:00:00Z"
+  }
+}
+```
+
+With signing on, enable then reads `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` and keeps the secret in the flow store:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+  }
+}
+```
+
+Disable lists the endpoints and sends `DELETE /accounts/{accountId}/webhooks/endpoints/{endpointId}` for the endpoint that points at the flow (`data` is `[]`).
+
+When the endpoints path answers `404`, enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, sends `PUT` to the same path and reads it back to verify the registration:
 
 ```json
 {
@@ -1020,12 +1070,20 @@ Enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, then sends `PUT
     "signer_rejected_document"
   ],
   "is_active": true,
-  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-secret>",
+  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
   "email": "ops@example.com"
 }
 ```
 
-The API returns the same fields under `data`, plus `updated_at`. The piece reads them back to verify registration. Disable reads the subscription and writes `is_active: false` while preserving its URL, events and email, only if the subscription still belongs to the flow. Example webhook POST delivered by Assinafy (the secret remains in the request query):
+Disable then reads the subscription and sends `PUT /accounts/{accountId}/webhooks/inactivate` only if it still points at the flow.
+
+Example webhook POST delivered by Assinafy. The token stays in the request query, and a signed endpoint adds these headers:
+
+```http
+webhook-id: 9f86d081884c7d659a2feaa0c55ad015
+webhook-timestamp: 1788273130
+webhook-signature: v1,<base64 HMAC-SHA256 of "{webhook-id}.{webhook-timestamp}.{raw body}">
+```
 
 ```json
 {
@@ -1070,7 +1128,7 @@ The output starts with these fields, plus **every** field from the complete [doc
 }
 ```
 
-Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key derived from `event_id`. Accepted event codes:
+Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key: the `webhook-id` header, or `event_id` when the header is missing. Accepted event codes:
 
 `document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `template_created`, `template_processed`, `template_processing_failed`.
 
@@ -1173,7 +1231,9 @@ Saídas de **New Event (Instant)**:
 | `HTTP 401 … check the API key` | A chave está errada, foi excluída ou pertence ao outro ambiente. Crie uma nova chave ou altere **Environment**. |
 | `This API key can access N workspaces` | Preencha **Workspace ID** na conexão. |
 | `… is not available for this document yet` | O arquivo ainda não existe, por exemplo o PDF assinado antes de todos assinarem. |
-| `This Assinafy workspace already sends its webhooks to …` | Outro sistema recebe os eventos do espaço de trabalho. Ative **Replace Existing Webhook** apenas se esse sistema não precisar mais deles, ou use **Document Signed**. |
+| `Every webhook endpoint of this Assinafy workspace is already in use` | Exclua um endpoint de que você não precisa mais nas configurações de webhook do espaço de trabalho na Assinafy, ative **Replace Existing Webhook** para reutilizar o mais antigo, ou use **Document Signed**. |
+| `This Assinafy workspace already sends its webhooks to …` | O espaço de trabalho tem um único endereço de webhook e outro sistema recebe os eventos dele. Ative **Replace Existing Webhook** apenas se esse sistema não precisar mais deles, ou use **Document Signed**. |
+| O fluxo New Event parou de receber eventos depois que o segredo de assinatura foi trocado | Desative e ative o fluxo de novo para que ele leia o novo segredo. |
 | `HTTP 403 … approved permissions` | O item pertence a outro espaço de trabalho ou exige outro papel na Assinafy. Em uma conexão OAuth, uma permissão ausente também causa isso: adicione a permissão à aplicação OAuth e conecte novamente. Cobrança, membros e credenciais nunca estão disponíveis para conexões OAuth. |
 | `HTTP 401` em uma conexão OAuth que funcionava | O acesso foi revogado em **Connected apps** na Assinafy, a aplicação OAuth foi excluída ou desativada, o aplicativo foi aprovado de novo com permissões diferentes, ou a conexão ficou 30 dias sem uso. Conecte novamente. |
 | `… is saved in Assinafy with a different WhatsApp number` | Atualize o signatário com **Update Signer** ou deixe **WhatsApp Number** em branco para usar o número cadastrado. |
@@ -1204,7 +1264,6 @@ Os testes unitários simulam o cliente HTTP e bloqueiam qualquer acesso real à 
 - Quando duas execuções criam o mesmo novo signatário ao mesmo tempo, a execução que perde reutiliza o signatário criado pela outra.
 - As requisições não seguem redirecionamentos automaticamente. Um redirecionamento só é seguido em leituras e downloads e apenas para um endereço `https://`, e as credenciais ficam de fora quando ele aponta para fora do endereço da Assinafy, por exemplo para o armazenamento de arquivos.
 - O envio usa `form-data` com nome de arquivo, tipo de conteúdo e boundary multipart definidos pelo cliente HTTP do Activepieces.
-- O endpoint de criação de signatário da Assinafy não aceita CPF/CNPJ, então ele é definido com uma atualização em seguida.
 - A peça solicita 50 itens por página. A referência da API permite até 100; as leituras seguem `X-Pagination-Page-Count` e param em uma página incompleta ou repetida.
 - A referência da API não documenta um endpoint de modelo único, então o formulário e a ação de modelo percorrem até 500 modelos.
 - **Document Signed** mantém seu próprio estado e o preserva quando o fluxo é republicado: o momento em que foi ativado, a última verificação concluída, a posição de uma varredura de acúmulo em andamento e um registro dos documentos disparados recentemente.
@@ -1227,10 +1286,12 @@ ASSINAFY_API_KEY=<chave do sandbox> npm run test:live
 | `ASSINAFY_ACCOUNT_ID` | Espaço de trabalho a usar quando a chave tem vários |
 | `ASSINAFY_LIVE_SEND=1` | Também envia um documento e gera outro de um modelo pronto para endereços `example.com` (usa documentos do plano) |
 | `ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1` | Exige sucesso nas quatro estimativas; sem essa variável, restrições explícitas do plano são verificadas |
-| `ASSINAFY_LIVE_WEBHOOK=1` | Também ativa e desativa o webhook do espaço de trabalho; falha em vez de substituir outro destino |
+| `ASSINAFY_LIVE_WEBHOOK=1` | Também ativa e desativa o gatilho New Event: um endpoint de webhook assinado quando o espaço de trabalho aceita endpoints, ou então o endereço único de webhook, que é restaurado depois; falha em vez de substituir outro destino |
 | `ASSINAFY_LIVE_WEBHOOK_EMAIL` | Endereço de avisos de entrega para o teste do webhook (padrão: um endereço `example.com`) |
 
 O conjunto também verifica as quatro combinações de verificação/notificação, o histórico de assinatura e os arquivos finais PDF/ZIP disponíveis em um documento já assinado. O teste de modelo exige um modelo pronto com um papel de signatário e nenhum campo de editor. A conclusão de assinaturas por OTP ou A1/A3 exige acesso à caixa de e-mail/telefone do destinatário ou a um certificado compatível.
+
+O sandbox limita rajadas de requisições com HTTP 429; o conjunto aguarda o tempo indicado na resposta e envia a requisição novamente.
 
 ### Testes OAuth em produção
 

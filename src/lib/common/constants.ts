@@ -57,14 +57,14 @@ const signerVerificationMethods: Record<
   },
   certificate_email: {
     label:
-      'ICP-Brasil digital certificate, invited by email (2 credits per signer)',
+      'ICP-Brasil digital certificate, invited by email (0.5 credit per signer)',
     verification_method: 'DigitalCertificate',
     notification_method: 'Email',
     certificate: true,
   },
   certificate_whatsapp: {
     label:
-      'ICP-Brasil digital certificate, invited by WhatsApp (2.45 credits per signer)',
+      'ICP-Brasil digital certificate, invited by WhatsApp (0.95 credit per signer)',
     verification_method: 'DigitalCertificate',
     notification_method: 'Whatsapp',
     certificate: true,

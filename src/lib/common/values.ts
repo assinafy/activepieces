@@ -31,14 +31,18 @@ function validateContact({
   label: string;
 }): void {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error(`${label}: enter a valid email address, e.g. maria@example.com.`);
+    throw new Error(
+      `${label}: enter a valid email address, e.g. maria@example.com.`
+    );
   }
   if (
     whatsapp &&
     (!/^[+\d\s().-]+$/.test(whatsapp) ||
       !/^[1-9]\d{9,14}$/.test(digits(whatsapp)))
   ) {
-    throw new Error(`${label}: enter a valid WhatsApp number with country code, e.g. +5548999990000.`);
+    throw new Error(
+      `${label}: enter a valid WhatsApp number with country code, e.g. +5548999990000.`
+    );
   }
 }
 
@@ -149,13 +153,11 @@ function checkDigit({
 }
 
 function isGovernmentId(value: string): boolean {
-  const numbers = [...digits(value)].map(Number);
-  if (
-    (numbers.length !== 11 && numbers.length !== 14) ||
-    numbers.every((number) => number === numbers[0])
-  ) {
+  const id = value.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!/^(\d{11}|[0-9A-Z]{12}\d{2})$/.test(id) || /^(.)\1*$/.test(id)) {
     return false;
   }
+  const numbers = [...id].map((character) => character.charCodeAt(0) - 48);
   const weightsFor = (length: number) =>
     numbers.length === 11
       ? Array.from({ length }, (_, index) => length + 1 - index)

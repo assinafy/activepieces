@@ -1,9 +1,8 @@
 import { beforeEach, vi } from 'vitest';
 
 vi.mock('@activepieces/pieces-common', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('@activepieces/pieces-common')
-  >();
+  const actual =
+    await importOriginal<typeof import('@activepieces/pieces-common')>();
   const { sendRequest } = await import('./http-mock');
   return {
     ...actual,

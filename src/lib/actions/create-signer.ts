@@ -57,27 +57,19 @@ export const createSigner = createAction({
     });
     const governmentId = propsValue.government_id?.trim();
     if (governmentId && !assinafyValues.isGovernmentId(governmentId)) {
-      throw new Error('A CPF has 11 digits and a CNPJ has 14 digits.');
+      throw new Error('A CPF has 11 digits and a CNPJ has 14 characters.');
     }
     const client = assinafyApi.forAuth(auth);
-    const signersPath = await client.accountPath('/signers');
     const signer = await client.request<ApiSigner>({
       method: HttpMethod.POST,
-      path: signersPath,
+      path: await client.accountPath('/signers'),
       body: assinafyValues.compact({
         full_name: propsValue.full_name.trim(),
         email: propsValue.email?.trim(),
         whatsapp_phone_number: propsValue.whatsapp?.trim(),
+        government_id: governmentId,
       }),
     });
-    if (!governmentId) {
-      return assinafyFormat.signer(signer);
-    }
-    const updated = await client.request<ApiSigner>({
-      method: HttpMethod.PUT,
-      path: `${signersPath}/${encodeURIComponent(signer.id)}`,
-      body: { government_id: governmentId },
-    });
-    return assinafyFormat.signer(updated);
+    return assinafyFormat.signer(signer);
   },
 });

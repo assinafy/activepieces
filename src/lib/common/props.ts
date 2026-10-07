@@ -43,7 +43,7 @@ function signerLabel(signer: ApiSigner): string {
   const contact = signer.email ?? signer.whatsapp_phone_number;
   return contact
     ? `${signer.full_name ?? signer.id} (${contact})`
-    : signer.full_name ?? signer.id;
+    : (signer.full_name ?? signer.id);
 }
 
 function documentDropdown(description: string) {

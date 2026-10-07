@@ -203,7 +203,7 @@ describe('Custom API Call', () => {
     );
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
-      { headers: Record<string, string> }
+      { headers: Record<string, string> },
     ];
     expect(url).toBe(`${SANDBOX}/accounts`);
     expect(header(init.headers, 'x-api-key')).toBe('test-api-key');
@@ -253,7 +253,7 @@ describe('Custom API Call', () => {
     await customApiCall?.run(context({ props, extra: { auth: oauthAuth } }));
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
-      { headers: Record<string, string> }
+      { headers: Record<string, string> },
     ];
     expect(url).toBe(`${PRODUCTION}/accounts`);
     expect(header(init.headers, 'authorization')).toBe(

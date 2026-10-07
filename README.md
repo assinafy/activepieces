@@ -282,7 +282,7 @@ Returns a list of signers:
 
 Saves a new signer in the workspace. **Request Signatures** creates missing signers on its own, so use this only to register people ahead of time. It fails when a signer with the same email already exists.
 
-- Endpoint: `POST /v1/accounts/{accountId}/signers`, then `PUT /v1/accounts/{accountId}/signers/{signerId}` when a CPF/CNPJ is given (the create endpoint does not accept it)
+- Endpoint: `POST /v1/accounts/{accountId}/signers`
 - Inputs: **Full Name** (required), **Email**, **WhatsApp Number**, **CPF or CNPJ**
 
 Returns the signer shape shown in [Find Signers](#find-signers).
@@ -307,17 +307,20 @@ Every document, signer and template input in the actions above is a dropdown, se
 | Trigger | When it fires | Delivery |
 |---|---|---|
 | Document Signed | Every signer has signed and the signed PDF is ready, for signings completed after the flow was turned on | Checked every few minutes. Any number of flows can use it. |
-| New Event (Instant) | The selected Assinafy events happen: document signed by all, signer signed, signer declined, document cancelled, and more | Instant, through the workspace webhook |
+| New Event (Instant) | The selected Assinafy events happen: document signed by all, signer signed, signer declined, document cancelled, and more | Instant, through a webhook endpoint registered for the flow |
 
-**New Event (Instant)** uses the workspace webhook (`GET/PUT /v1/accounts/{accountId}/webhooks/subscriptions`), and Assinafy delivers each workspace's events to a single address:
+**New Event (Instant)** registers its own webhook endpoint (`/v1/accounts/{accountId}/webhooks/endpoints`):
 
-- Use it in only one active flow per workspace; add a Router step to handle several event types.
-- If the workspace already delivers events to another system, the flow does not start unless **Replace Existing Webhook** is turned on.
-- Turning the flow off stops the webhook, but only while it still points at that flow.
-- **Delivery Notice Email** receives Assinafy's notices about failed deliveries. It is required only when the workspace has no address yet.
+- An Assinafy workspace has 1 webhook endpoint, or up to 3 on paid plans. Each active flow using this trigger takes one endpoint, named `Activepieces`; add a Router step to handle several event types in one flow.
+- When every endpoint is taken, the flow does not start unless **Replace Existing Webhook** is turned on. That setting reuses the workspace's oldest endpoint, which then stops delivering to its current system.
+- Turning the flow off deletes its endpoint, which frees the slot. An endpoint that no longer points at the flow is left alone.
+- **Delivery Notice Email** receives Assinafy's notices about failed deliveries. When it is empty, the address of the flow's endpoint or of the oldest endpoint is used.
+- On an API key connection the endpoint is created with signing on. Every delivery then carries a [Standard Webhooks](https://www.standardwebhooks.com) signature (`webhook-id`, `webhook-timestamp`, `webhook-signature`), and the flow ignores deliveries whose HMAC-SHA256 signature does not match the endpoint secret or whose timestamp is more than five minutes off. The flow reads the secret when it is turned on; after rotating the secret in Assinafy, turn the flow off and on again.
+- Assinafy does not give OAuth applications the signing secret, so on an Assinafy Account connection the endpoint is created without signing.
+- Each flow also registers its address with a random token, and requests without it are ignored. The token stays the same when the flow is republished or turned off and on, so deliveries already on their way still count.
 - For document events, the flow receives the current state of the document, read from the API when the event arrives. If it cannot be read (for example after the document was deleted), the copy sent with the event is used.
-- Assinafy retries a failed delivery once. Activepieces drops a repeated event that arrives within 30 seconds; for later repeats, `event_id` identifies the event.
-- Each flow registers its webhook address with a random secret, and requests without it are ignored. The secret stays the same when the flow is republished or turned off and on, so deliveries already on their way still count. Assinafy does not sign its webhook requests, so keep the address private.
+- Assinafy retries a failed delivery once with the same `webhook-id`, which the flow uses as the deduplication key.
+- Where the workspace supports only a single webhook address (the endpoints path answers `404`), the flow uses `/v1/accounts/{accountId}/webhooks/subscriptions` instead. It then refuses to take over an address that delivers to another system unless **Replace Existing Webhook** is on, and turning the flow off deactivates the address while it still points at the flow.
 
 The document is signed as soon as the last signer signs, but the signed PDF is available only after certification finishes. **Document Signed** fires after certification; **Download Document** also waits up to a minute while certification is still running.
 
@@ -330,9 +333,9 @@ The document is signed as soon as the last signer signs, but the signed PDF is a
 - A signer is matched by email, or by name and WhatsApp number when there is no email, so give the full name of a signer who has only a WhatsApp number. WhatsApp numbers match regardless of formatting, and a number without the country code matches the saved international number.
 - If nobody matches, a signer is created, which requires a full name.
 - A missing WhatsApp number is added to an existing signer. A WhatsApp number that differs from the saved one stops the step with an error instead of using the saved value.
-- A CPF/CNPJ is saved only when the signer is created. Assinafy does not show saved CPFs, so the step never changes the CPF of an existing signer; use **Update Signer** for that.
+- A CPF/CNPJ is saved only when the signer is created; the step never changes the CPF/CNPJ of an existing signer. Use **Update Signer** for that.
 - Change saved details with **Update Signer**; changing a channel invalidates invitations that were already sent.
-- Every signer and copy recipient row is checked, and every one of them is looked up, before any signer is created or changed: a contact for the chosen channel, a valid CPF or CNPJ (including its check digits), no repeated email or WhatsApp number, no person reached twice through different details, and the signing order rules below.
+- Every signer and copy recipient row is checked, and every one of them is looked up, before any signer is created or changed: a contact for the chosen channel, a valid CPF or CNPJ (including its check digits; CNPJs may be alphanumeric), no repeated email or WhatsApp number, no person reached twice through different details, and the signing order rules below.
 
 ## Verification and costs
 
@@ -342,8 +345,8 @@ Signers prove their identity while signing with one of four methods; A1 and A3 I
 |---|---|---|
 | Email code (default) | Email | Free |
 | WhatsApp code | WhatsApp | 0.45 credit (paid plans) |
-| ICP-Brasil digital certificate (A1 or A3) | Email | 2 credits |
-| ICP-Brasil digital certificate (A1 or A3) | WhatsApp | 2.45 credits |
+| ICP-Brasil digital certificate (A1 or A3) | Email | 0.5 credit |
+| ICP-Brasil digital certificate (A1 or A3) | WhatsApp | 0.95 credit (0.5 for the certificate signature plus 0.45 for the WhatsApp invitation) |
 
 When **Verification** is empty, it is email, or WhatsApp when the signer has only a WhatsApp number. Digital certificate signing needs the Digital Certificate feature on the Assinafy plan, the signer's CPF or CNPJ saved in Assinafy (given in the step when the signer is new, or set with **Update Signer**), and the signer alone in their signing order step. Every signature request also uses one document from the plan, or one credit when the allowance is used up.
 
@@ -533,6 +536,7 @@ Create Signer and Update Signer return:
     "full_name": "Maria Silva",
     "email": "maria@example.com",
     "whatsapp_phone_number": null,
+    "government_id": "39053344705",
     "has_accepted_terms": false
   }
 }
@@ -550,7 +554,7 @@ Their complete **signer output**, and each entry returned by Find Signers, is:
 }
 ```
 
-CPF/CNPJ is write-only in these responses. Find Signers returns an array of signer outputs, or `[]`.
+The signer output leaves out the CPF/CNPJ. Find Signers returns an array of signer outputs, or `[]`.
 
 ### Action inputs and HTTP requests
 
@@ -861,19 +865,12 @@ HTTP: `POST /accounts/{accountId}/signers`:
 {
   "full_name": "Maria Silva",
   "email": "maria@example.com",
-  "whatsapp_phone_number": "+5548999990000"
-}
-```
-
-When government_id is supplied, HTTP then sends `PUT /accounts/{accountId}/signers/{createdSignerId}`:
-
-```json
-{
+  "whatsapp_phone_number": "+5548999990000",
   "government_id": "390.533.447-05"
 }
 ```
 
-Both calls return the [signer payload](#signer-payload). The piece returns the final signer output. A failed follow-up update leaves the created signer in the workspace; use Update Signer to finish setting the CPF/CNPJ.
+Empty inputs are left out. The call returns the [signer payload](#signer-payload), and the piece returns the signer output.
 
 #### Update Signer payload
 
@@ -950,16 +947,16 @@ Response body (example balances):
   "message": "",
   "data": {
     "documents": 1,
-    "credits": 2,
+    "credits": 0.5,
     "needs_extra_document": false,
     "extra_document_cost": 0,
-    "total_credits": 2,
+    "total_credits": 0.5,
     "breakdown": [
       {
         "code": "SignatureDigitalCertificate",
         "quantity": 1,
-        "unit_cost": 2,
-        "cost": 2,
+        "unit_cost": 0.5,
+        "cost": 0.5,
         "name": "Digital certificate signature"
       }
     ],
@@ -1007,7 +1004,60 @@ Each emitted item is the complete [document output](#document-payload), with sig
 }
 ```
 
-Enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, then sends `PUT` to the same path:
+Enable lists `GET /accounts/{accountId}/webhooks/endpoints`. When no endpoint points at the flow, it sends `POST /accounts/{accountId}/webhooks/endpoints`; when one does, it sends `PUT /accounts/{accountId}/webhooks/endpoints/{endpointId}` with the same body:
+
+```json
+{
+  "name": "Activepieces",
+  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
+  "email": "ops@example.com",
+  "events": [
+    "document_ready",
+    "signer_rejected_document"
+  ],
+  "is_active": true,
+  "signing_enabled": true
+}
+```
+
+`signing_enabled` is `false` on an Assinafy Account connection. A `403` on create means every endpoint is taken; with **Replace Existing Webhook** on, the same body is sent with `PUT` to the oldest endpoint. The API returns the endpoint:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "id": "65f1c2a9b3e4d5f60718293a4b5c6d7e",
+    "name": "Activepieces",
+    "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
+    "email": "ops@example.com",
+    "events": [
+      "document_ready",
+      "signer_rejected_document"
+    ],
+    "is_active": true,
+    "signing_enabled": true,
+    "created_at": "2026-10-01T12:00:00Z",
+    "updated_at": "2026-10-01T12:00:00Z"
+  }
+}
+```
+
+With signing on, enable then reads `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` and keeps the secret in the flow store:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+  }
+}
+```
+
+Disable lists the endpoints and sends `DELETE /accounts/{accountId}/webhooks/endpoints/{endpointId}` for the endpoint that points at the flow (`data` is `[]`).
+
+When the endpoints path answers `404`, enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, sends `PUT` to the same path and reads it back to verify the registration:
 
 ```json
 {
@@ -1016,12 +1066,20 @@ Enable reads `GET /accounts/{accountId}/webhooks/subscriptions`, then sends `PUT
     "signer_rejected_document"
   ],
   "is_active": true,
-  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-secret>",
+  "url": "https://automations.example.com/webhooks/example-flow?assinafy_token=<random-token>",
   "email": "ops@example.com"
 }
 ```
 
-The API returns the same fields under `data`, plus `updated_at`. The piece reads them back to verify registration. Disable reads the subscription and writes `is_active: false` while preserving its URL, events and email, only if the subscription still belongs to the flow. Example webhook POST delivered by Assinafy (the secret remains in the request query):
+Disable then reads the subscription and sends `PUT /accounts/{accountId}/webhooks/inactivate` only if it still points at the flow.
+
+Example webhook POST delivered by Assinafy. The token stays in the request query, and a signed endpoint adds these headers:
+
+```http
+webhook-id: 9f86d081884c7d659a2feaa0c55ad015
+webhook-timestamp: 1788273130
+webhook-signature: v1,<base64 HMAC-SHA256 of "{webhook-id}.{webhook-timestamp}.{raw body}">
+```
 
 ```json
 {
@@ -1066,7 +1124,7 @@ The output starts with these fields, plus **every** field from the complete [doc
 }
 ```
 
-Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key derived from `event_id`. Accepted event codes:
+Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key: the `webhook-id` header, or `event_id` when the header is missing. Accepted event codes:
 
 `document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `template_created`, `template_processed`, `template_processing_failed`.
 
@@ -1169,7 +1227,9 @@ Signer outputs: `id`, `full_name`, `email`, `whatsapp_phone_number`, `has_accept
 | `HTTP 401 … check the API key` | The key is wrong, was deleted, or belongs to the other environment. Create a new key or change **Environment**. |
 | `This API key can access N workspaces` | Set **Workspace ID** on the connection. |
 | `… is not available for this document yet` | The file does not exist yet, for example the signed PDF before everyone signs. |
-| `This Assinafy workspace already sends its webhooks to …` | Another system receives the workspace events. Turn on **Replace Existing Webhook** only if that system no longer needs them, or use **Document Signed**. |
+| `Every webhook endpoint of this Assinafy workspace is already in use` | Delete an endpoint you no longer need under the workspace webhook settings in Assinafy, turn on **Replace Existing Webhook** to reuse the oldest one, or use **Document Signed**. |
+| `This Assinafy workspace already sends its webhooks to …` | The workspace has a single webhook address and another system receives its events. Turn on **Replace Existing Webhook** only if that system no longer needs them, or use **Document Signed**. |
+| New Event flow stopped receiving events after the signing secret was rotated | Turn the flow off and on again so it reads the new secret. |
 | `HTTP 403 … approved permissions` | The item belongs to another workspace or needs a different Assinafy role. On an OAuth connection, a missing permission also causes it: add the permission to the OAuth application and reconnect. Billing, members and credentials are never available to OAuth connections. |
 | `HTTP 401` on an OAuth connection that used to work | The access was revoked under **Connected apps** in Assinafy, the OAuth application was deleted or disabled, the app was approved again with different permissions, or the connection went 30 days without use. Reconnect. |
 | `… is saved in Assinafy with a different WhatsApp number` | Update the signer with **Update Signer**, or leave WhatsApp Number empty to use the saved number. |
@@ -1200,7 +1260,6 @@ Unit tests mock the HTTP client and block any real network request. One upload t
 - When two runs create the same new signer at the same moment, the run that loses reuses the signer the other one created.
 - Requests do not follow redirects automatically. A redirect is followed only for reads and downloads and only to an `https://` address, and the credentials are left out when it points outside the Assinafy address, for example to file storage.
 - Uploads use `form-data` with a filename, content type and multipart boundary handled by the Activepieces HTTP client.
-- Assinafy's create-signer endpoint does not accept a CPF/CNPJ, so it is set with a follow-up update.
 - The piece requests 50 items per page. The API reference permits up to 100; list reads follow `X-Pagination-Page-Count` and stop at a short or repeated page.
 - The API reference documents no single-template endpoint, so the template form and action scan up to 500 templates.
 - **Document Signed** keeps its own state and keeps it when a flow is republished: the time it was turned on, the last completed check, the position of an unfinished backlog scan, and a ledger of documents it fired recently.
@@ -1223,10 +1282,12 @@ ASSINAFY_API_KEY=<sandbox key> npm run test:live
 | `ASSINAFY_ACCOUNT_ID` | Workspace to use when the key has several |
 | `ASSINAFY_LIVE_SEND=1` | Also sends an uploaded document and a ready one-signer template to `example.com` addresses (uses plan documents) |
 | `ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1` | Requires all four cost estimates to succeed; otherwise explicit plan restrictions are checked |
-| `ASSINAFY_LIVE_WEBHOOK=1` | Also enables and disables the workspace webhook; fails instead of replacing another destination |
+| `ASSINAFY_LIVE_WEBHOOK=1` | Also turns the New Event trigger on and off: a signed webhook endpoint where the workspace supports endpoints, otherwise the single webhook address, which it restores afterwards; fails instead of replacing another destination |
 | `ASSINAFY_LIVE_WEBHOOK_EMAIL` | Delivery notice address for the webhook check (defaults to an `example.com` address) |
 
 The suite also checks all four verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. The template sending check requires a ready template with one signer role and no editor fields. These API checks do not complete an OTP or A1/A3 signing session; that requires a recipient-controlled inbox/phone or a compatible certificate.
+
+The sandbox limits bursts of requests with HTTP 429; the suite waits for the time the response names and sends the request again.
 
 ### Production OAuth tests
 

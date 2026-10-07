@@ -283,19 +283,19 @@ describe('Document Signed: polling', () => {
             },
           ]
         : request.url.endsWith('/activities')
-        ? []
-        : [
-            {
-              ...signedDocument,
-              id: 'doc_a',
-              updated_at: iso(T0 + 3 * MINUTE),
-            },
-            {
-              ...signedDocument,
-              id: 'doc_b',
-              updated_at: iso(T0 + 2 * MINUTE),
-            },
-          ];
+          ? []
+          : [
+              {
+                ...signedDocument,
+                id: 'doc_a',
+                updated_at: iso(T0 + 3 * MINUTE),
+              },
+              {
+                ...signedDocument,
+                id: 'doc_b',
+                updated_at: iso(T0 + 2 * MINUTE),
+              },
+            ];
       return {
         status: 200,
         headers: {},
@@ -421,11 +421,18 @@ describe('Document Signed: polling', () => {
     for (const status of [401, 403]) {
       fakeAssinafy({
         documents: signedAfterEnable({ count: 1 }),
-        onActivities: () => { throw new HttpError(undefined, { status, responseBody: { message: 'Authorization failed' } }); },
+        onActivities: () => {
+          throw new HttpError(undefined, {
+            status,
+            responseBody: { message: 'Authorization failed' },
+          });
+        },
       });
       const store = enabledAt(T0);
       for (let attempt = 1; attempt <= 4; attempt++) {
-        await expect(poll({ store, now: T0 + attempt * 5 * MINUTE })).rejects.toThrow(`HTTP ${status}`);
+        await expect(
+          poll({ store, now: T0 + attempt * 5 * MINUTE })
+        ).rejects.toThrow(`HTTP ${status}`);
       }
       expect(savedState(store)).toMatchObject({ ledger: [], checkedUntil: T0 });
     }

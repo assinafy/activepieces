@@ -15,10 +15,14 @@ const enabled = process.env['ASSINAFY_OAUTH_LIVE'] === '1';
 const tokenFile = process.env['ASSINAFY_OAUTH_TOKEN_FILE'];
 const auth = {
   type: AppConnectionType.OAUTH2,
-  access_token: enabled && tokenFile
-    ? (JSON.parse(readFileSync(tokenFile, 'utf8')) as { access_token: string })
-        .access_token
-    : process.env['ASSINAFY_OAUTH_ACCESS_TOKEN'] ?? '',
+  access_token:
+    enabled && tokenFile
+      ? (
+          JSON.parse(readFileSync(tokenFile, 'utf8')) as {
+            access_token: string;
+          }
+        ).access_token
+      : (process.env['ASSINAFY_OAUTH_ACCESS_TOKEN'] ?? ''),
   data: {},
 };
 
@@ -35,23 +39,36 @@ describe.skipIf(!enabled)('Assinafy production OAuth (read only)', () => {
     });
     expect(accounts).toHaveLength(1);
     expect(await client.accountId()).toBe(accounts[0].id);
-    expect(await assinafyAuth[1].getConnectionIdentifier?.({
-      auth: auth as never,
-      server: {} as never,
-    })).toBe(accounts[0].name);
+    expect(
+      await assinafyAuth[1].getConnectionIdentifier?.({
+        auth: auth as never,
+        server: {} as never,
+      })
+    ).toBe(accounts[0].name);
   });
 
   test('reads documents, template and signer pickers, and both trigger samples with bearer authentication', async () => {
-    expect(await findDocuments.run(context({ props: { limit: 2 }, extra: { auth } }))).toBeInstanceOf(Array);
+    expect(
+      await findDocuments.run(context({ props: { limit: 2 }, extra: { auth } }))
+    ).toBeInstanceOf(Array);
     for (const dropdown of [
       assinafyProps.document('Document'),
       assinafyProps.template('Template'),
       assinafyProps.signer('Signer'),
     ]) {
-      const options = await dropdown.options({ auth: auth as never }, {} as never);
+      const options = await dropdown.options(
+        { auth: auth as never },
+        {} as never
+      );
       expect(options.disabled, options.placeholder).toBe(false);
     }
-    expect(await documentSigned.test?.(context({ props: {}, extra: { auth } }))).toBeInstanceOf(Array);
-    expect(await newEvent.test?.(context({ props: { events: ['document_ready'] }, extra: { auth } }))).toBeInstanceOf(Array);
+    expect(
+      await documentSigned.test?.(context({ props: {}, extra: { auth } }))
+    ).toBeInstanceOf(Array);
+    expect(
+      await newEvent.test?.(
+        context({ props: { events: ['document_ready'] }, extra: { auth } })
+      )
+    ).toBeInstanceOf(Array);
   });
 });
