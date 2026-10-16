@@ -8,6 +8,8 @@ import {
   apiAssignment,
   apiDocument,
   apiSigner,
+  apiKeyAuth,
+  oauthAuth,
   context,
   replyData,
   sentRequests,
@@ -23,6 +25,63 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Request Signatures', () => {
+  test.each([
+    ['email', 'Email', 'Email'],
+    ['whatsapp', 'Whatsapp', 'Whatsapp'],
+    ['certificate_email', 'DigitalCertificate', 'Email'],
+    ['certificate_whatsapp', 'DigitalCertificate', 'Whatsapp'],
+    ['biometric_email', 'IdDocumentFaceMatchBasic', 'Email'],
+    ['biometric_whatsapp', 'IdDocumentFaceMatchBasic', 'Whatsapp'],
+  ])(
+    'sends %s with its one compatible notification for API key and OAuth connections',
+    async (verification, method, channel) => {
+      for (const auth of [apiKeyAuth, oauthAuth]) {
+        replyData(readyDocument);
+        if (auth === oauthAuth) replyData([{ id: 'acc_1' }]);
+        replyData([
+          {
+            ...apiSigner,
+            whatsapp_phone_number: '+5548999990000',
+            government_id: '39053344705',
+          },
+        ]);
+        replyData(apiAssignment);
+        await requestSignatures.run(
+          context({
+            props: {
+              document: 'doc_1',
+              signers: [
+                {
+                  email: 'maria@example.com',
+                  whatsapp: '+5548999990000',
+                  verification,
+                },
+              ],
+            },
+            extra: { auth },
+          })
+        );
+        expect(sentRequests().at(-1)).toMatchObject({
+          method: HttpMethod.POST,
+          headers:
+            auth === oauthAuth
+              ? { Authorization: 'Bearer test-access-token' }
+              : { 'X-Api-Key': 'test-api-key' },
+          body: {
+            method: 'virtual',
+            signers: [
+              {
+                id: 'sig_1',
+                verification_method: method,
+                notification_methods: [channel],
+              },
+            ],
+          },
+        });
+      }
+    }
+  );
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -146,7 +205,7 @@ describe('Request Signatures', () => {
 
   test('uses the digital certificate method with the CPF', async () => {
     replyData(readyDocument);
-    replyData([apiSigner]);
+    replyData([{ ...apiSigner, government_id: '39053344705' }]);
     replyData(apiAssignment);
     await requestSignatures.run(
       context({

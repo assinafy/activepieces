@@ -127,7 +127,8 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
   const client = assinafyApi.forAuth(auth as AssinafyAuthValue);
   let documentId: string | undefined;
   let signerId: string | undefined;
-  const templateDocumentIds = new Set<string>();
+  const extraDocumentIds = new Set<string>();
+  const extraSignerIds = new Set<string>();
 
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -135,36 +136,26 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
 
   afterAll(async () => {
     vi.unstubAllGlobals();
-    for (const id of templateDocumentIds) {
-      await client.request({
-        method: HttpMethod.DELETE,
-        path: `/documents/${id}`,
-      });
-    }
-    if (documentId) {
+    const failures: unknown[] = [];
+    if (documentId) extraDocumentIds.add(documentId);
+    if (signerId) extraSignerIds.add(signerId);
+    for (const id of extraDocumentIds) {
       await client
         .request({
           method: HttpMethod.DELETE,
-          path: `/documents/${documentId}`,
+          path: `/documents/${id}`,
         })
-        .catch((error) =>
-          console.warn(
-            `Could not delete live-test document ${documentId}: ${error}`
-          )
-        );
+        .catch((error: unknown) => failures.push(error));
     }
-    if (signerId) {
+    for (const id of extraSignerIds) {
       await client
         .request({
           method: HttpMethod.DELETE,
-          path: await client.accountPath(`/signers/${signerId}`),
+          path: await client.accountPath(`/signers/${id}`),
         })
-        .catch((error) =>
-          console.warn(
-            `Could not delete live-test signer ${signerId}: ${error}`
-          )
-        );
+        .catch((error: unknown) => failures.push(error));
     }
+    expect(failures, 'Live-test resources must be removed').toEqual([]);
   });
 
   test('refuses anything but the sandbox and validates the API key', async () => {
@@ -440,7 +431,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
         expect(error).toBeInstanceOf(AssinafyApiError);
         expect((error as AssinafyApiError).status).toBe(403);
         expect((error as Error).message).toMatch(
-          /plano|certificado|disponível/i
+          /plano|certificado|disponível|identidade|biometr/i
         );
         console.info(
           `${method.verification_method}/${method.notification_method}: workspace plan does not allow this method`
@@ -448,6 +439,76 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
       }
     }
   });
+
+  test.skipIf(env['ASSINAFY_LIVE_SEND'] !== '1')(
+    'creates assignments for every method with the tested signer in an inactive second step',
+    async () => {
+      const email = `ap-method-${runId}@example.com`;
+      const featureSigner = await client.request<{ id: string }>({
+        method: HttpMethod.POST,
+        path: await client.accountPath('/signers'),
+        body: {
+          full_name: `Methods ${runId}`,
+          email,
+          government_id: '39053344705',
+          whatsapp_phone_number: '+5548999990000',
+        },
+      });
+      extraSignerIds.add(featureSigner.id);
+      for (const [verification, method] of Object.entries(
+        assinafyConstants.signerVerificationMethods
+      )) {
+        const uploaded = (await uploadDocument.run(
+          liveContext({
+            props: {
+              file: new ApFile(
+                `ap-method-${verification}-${runId}.pdf`,
+                samplePdf(),
+                'pdf'
+              ),
+            },
+          }).ctx
+        )) as { id: string };
+        extraDocumentIds.add(uploaded.id);
+        try {
+          const result = await requestSignatures.run(
+            liveContext({
+              props: {
+                document: uploaded.id,
+                signers: [
+                  { email: `ap-live-${runId}@example.com`, step: 1 },
+                  { email, whatsapp: '+5548999990000', verification, step: 2 },
+                ],
+              },
+            }).ctx
+          );
+          expect(result).toMatchObject({
+            document_id: uploaded.id,
+            signers: [
+              { step: 1, verification_method: 'Email' },
+              {
+                id: featureSigner.id,
+                step: 2,
+                verification_method: method.verification_method,
+                notification_method: method.notification_method,
+              },
+            ],
+          });
+          console.info(`${verification}: assignment accepted`);
+        } catch (error) {
+          if (env['ASSINAFY_LIVE_REQUIRE_PAID_METHODS'] === '1') throw error;
+          expect(error).toBeInstanceOf(AssinafyApiError);
+          expect((error as AssinafyApiError).status).toBe(403);
+          expect((error as Error).message).toMatch(
+            /plano|certificado|disponível|identidade|biometr/i
+          );
+          console.info(
+            `${verification}: workspace plan does not allow this method`
+          );
+        }
+      }
+    }
+  );
 
   test.skipIf(env['ASSINAFY_LIVE_SEND'] !== '1')(
     'creates and sends a document from a ready template',
@@ -491,7 +552,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
           },
         }).ctx
       )) as { id: string; template_id: string; assignment_id: string | null };
-      templateDocumentIds.add(document.id);
+      extraDocumentIds.add(document.id);
       expect(document.template_id).toBe(template!.id);
       expect(Object.keys(document)).toEqual(
         describedKeys(assinafyOutputSchemas.document)
@@ -581,7 +642,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
 
   test.skipIf(env['ASSINAFY_LIVE_WEBHOOK'] !== '1')(
     'registers and removes the webhook it owns',
-    async () => {
+    async (testContext) => {
       const webhookUrl = `https://automations.example.com/api/v1/webhooks/ap-live-${runId}`;
       const ownUrl = new RegExp(
         `^${webhookUrl}\\?assinafy_token=[0-9a-f]{48}$`
@@ -593,6 +654,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
         replace_existing: false,
       };
       const endpointsPath = await client.accountPath('/webhooks/endpoints');
+      let registered = false;
       const endpoints = () =>
         client.list<{ url?: string }>({
           method: HttpMethod.GET,
@@ -619,7 +681,21 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
       const store = memoryStore();
       const { ctx } = liveContext({ props, extra: { webhookUrl, store } });
       try {
-        await newEvent.onEnable(ctx);
+        try {
+          await newEvent.onEnable(ctx);
+          registered = true;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.startsWith('Every webhook endpoint')
+          ) {
+            expect(supportsEndpoints).toBe(true);
+            testContext.skip(
+              'The sandbox webhook slots are occupied; existing endpoints are preserved.'
+            );
+          }
+          throw error;
+        }
         if (supportsEndpoints) {
           expect(
             (await endpoints()).filter((endpoint) =>
@@ -636,6 +712,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
           });
         }
         await newEvent.onDisable(ctx);
+        registered = false;
         if (supportsEndpoints) {
           expect(
             (await endpoints()).some((endpoint) =>
@@ -648,6 +725,7 @@ describe.skipIf(!enabled)('Assinafy sandbox (live)', () => {
           ).toMatchObject({ is_active: false });
         }
       } finally {
+        if (registered) await newEvent.onDisable(ctx);
         if (original?.url && original.email) {
           await client.request({
             method: HttpMethod.PUT,

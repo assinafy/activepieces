@@ -229,18 +229,31 @@ async function saveEndpoint({
   body,
   target,
   oldest,
+  oauth,
+  secret,
 }: {
   client: AssinafyClient;
   body: Record<string, unknown>;
   target: ApiEndpoint | undefined;
   oldest: ApiEndpoint | undefined;
+  oauth: boolean;
+  secret: string | null;
 }): Promise<ApiEndpoint> {
   if (target) {
-    return client.request<ApiEndpoint>({
-      method: HttpMethod.PUT,
-      path: await endpointPath({ client, id: target.id }),
-      body,
-    });
+    if (oauth && (!target.signing_enabled || !secret)) {
+      // OAuth can recover a lost signing secret only by recreating the endpoint.
+      await client.find({
+        method: HttpMethod.DELETE,
+        path: await endpointPath({ client, id: target.id }),
+      });
+    } else {
+      const saved = await client.request<ApiEndpoint>({
+        method: HttpMethod.PUT,
+        path: await endpointPath({ client, id: target.id }),
+        body,
+      });
+      return { ...saved, secret: oauth ? (secret ?? undefined) : saved.secret };
+    }
   }
   try {
     return await client.request<ApiEndpoint>({
@@ -258,7 +271,14 @@ async function saveEndpoint({
         { cause: error }
       );
     }
-    return saveEndpoint({ client, body, target: oldest, oldest: undefined });
+    return saveEndpoint({
+      client,
+      body,
+      target: oldest,
+      oldest: undefined,
+      oauth,
+      secret: null,
+    });
   }
 }
 
@@ -277,7 +297,7 @@ function withDedupeKey({
 const SETUP_NOTE = `Turning this flow on registers a webhook endpoint for it in Assinafy, and turning it off removes that endpoint.
 
 - An Assinafy workspace has **1** webhook endpoint, or up to **3** on paid plans. When every endpoint is taken, this flow will not start unless **Replace Existing Webhook** is on, which reuses the oldest endpoint.
-- With an API key connection, Assinafy signs every delivery and the flow rejects deliveries whose signature does not match.
+- Assinafy signs every endpoint delivery for API key and Assinafy Account connections, and the flow rejects deliveries whose signature does not match.
 - Where a workspace supports only its single webhook address, the flow uses that address, and **Replace Existing Webhook** allows taking it over from another system.
 - Need more independent flows than endpoints? Use the **Document Signed** trigger, which checks Assinafy every few minutes instead.`;
 
@@ -379,6 +399,7 @@ export const newEvent = createTrigger({
         replace: Boolean(context.propsValue.replace_existing),
       });
       await context.store.delete(SECRET_KEY);
+      await context.store.delete(ENDPOINT_KEY);
       return;
     }
     const ours = endpoints.find((endpoint) =>
@@ -390,36 +411,58 @@ export const newEvent = createTrigger({
         'Enter a Delivery Notice Email so Assinafy can tell you about delivery problems.'
       );
     }
-    const signs = context.auth.type === AppConnectionType.CUSTOM_AUTH;
+    const oauth = context.auth.type === AppConnectionType.OAUTH2;
     const body = {
       name: ENDPOINT_NAME,
       url,
       email,
       events: context.propsValue.events,
       is_active: true,
-      signing_enabled: signs,
+      signing_enabled: true,
     };
     const saved = await saveEndpoint({
       client,
       body,
       target: ours,
       oldest: context.propsValue.replace_existing ? endpoints[0] : undefined,
+      oauth,
+      secret:
+        ours?.id === (await context.store.get<string>(ENDPOINT_KEY))
+          ? await context.store.get<string>(SECRET_KEY)
+          : null,
     });
-    if (!signs) {
-      await context.store.delete(SECRET_KEY);
-      return;
+    const secret =
+      saved.secret ??
+      (oauth
+        ? undefined
+        : (
+            await client.request<{ secret: string }>({
+              method: HttpMethod.GET,
+              path: await endpointPath({
+                client,
+                id: saved.id,
+                suffix: '/secret',
+              }),
+            })
+          ).secret);
+    if (
+      !secret?.startsWith('whsec_') ||
+      Buffer.from(secret.slice(6), 'base64').length === 0
+    ) {
+      throw new Error(
+        'Assinafy did not return a webhook signing secret. Turn the flow off and on to register its endpoint again.'
+      );
     }
-    const { secret } = await client.request<{ secret: string }>({
-      method: HttpMethod.GET,
-      path: await endpointPath({ client, id: saved.id, suffix: '/secret' }),
-    });
     await context.store.put(SECRET_KEY, secret);
+    await context.store.put(ENDPOINT_KEY, saved.id);
   },
   async onDisable(context) {
     const client = assinafyApi.forTrigger(context.auth);
     const endpoints = await listEndpoints(client);
     if (endpoints === null) {
       await unsubscribe({ client, webhookUrl: context.webhookUrl });
+      await context.store.delete(SECRET_KEY);
+      await context.store.delete(ENDPOINT_KEY);
       return;
     }
     const ours = endpoints.find((endpoint) =>
@@ -432,6 +475,7 @@ export const newEvent = createTrigger({
       });
     }
     await context.store.delete(SECRET_KEY);
+    await context.store.delete(ENDPOINT_KEY);
   },
   async test(context) {
     const client = assinafyApi.forTrigger(context.auth);
@@ -467,12 +511,13 @@ export const newEvent = createTrigger({
     }
     const secret = await context.store.get<string>(SECRET_KEY);
     if (
-      secret &&
-      !signatureValid({
-        secret,
-        headers: context.payload.headers,
-        rawBody: context.payload.rawBody,
-      })
+      ((await context.store.get<string>(ENDPOINT_KEY)) && !secret) ||
+      (secret &&
+        !signatureValid({
+          secret,
+          headers: context.payload.headers,
+          rawBody: context.payload.rawBody,
+        }))
     ) {
       return [];
     }
@@ -527,6 +572,7 @@ export const newEvent = createTrigger({
 const TOKEN_KEY = 'webhook_token';
 const TOKEN_PARAM = 'assinafy_token';
 const SECRET_KEY = 'webhook_secret';
+const ENDPOINT_KEY = 'webhook_endpoint_id';
 const ENDPOINT_NAME = 'Activepieces';
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
@@ -545,4 +591,5 @@ type ApiEndpoint = {
   events?: string[];
   is_active?: boolean;
   signing_enabled?: boolean;
+  secret?: string;
 };

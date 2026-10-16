@@ -41,7 +41,7 @@ export const createSigner = createAction({
     government_id: Property.ShortText({
       displayName: 'CPF or CNPJ',
       description:
-        'Needed only for ICP-Brasil digital certificate signing, e.g. 39053344705.',
+        'CPF required for biometric verification; CPF or CNPJ for ICP-Brasil certificates, e.g. 39053344705.',
       required: false,
       placeholder: '390.533.447-05',
     }),

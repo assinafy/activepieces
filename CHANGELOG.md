@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Request Signatures and Create Document from Template support biometric identity verification with email or WhatsApp invitations, including CPF validation before signer changes.
+- Document outputs include each signer's identity verification status; document filters and webhook events support identity review.
+- OAuth webhook endpoints use signed deliveries, retain their creation secret on republish, and recover a missing secret by recreating the endpoint.
+- Digital certificate requests validate the signer's saved or new CPF/CNPJ before signer changes.
+
 ## 0.2.0
 
 - New Event (Instant) registers a webhook endpoint of its own for each flow (1 per workspace, or up to 3 on paid plans) and deletes it when the flow is turned off. **Replace Existing Webhook** reuses the oldest endpoint when none is free.

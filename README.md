@@ -14,7 +14,7 @@ Send documents for legally valid electronic signature with [Assinafy](https://ww
 As a platform admin of your Activepieces instance:
 
 1. Open **Platform Admin → Setup → Pieces** and click **Install Piece**.
-2. Choose **NPM Registry**, enter the package name `@assinafy/piece-assinafy` and the version, for example `0.1.3`.
+2. Choose **NPM Registry**, enter the package name `@assinafy/piece-assinafy` and the version, for example `0.2.1`.
 3. The piece appears as **Assinafy** in the flow builder.
 
 To update, install the new version the same way.
@@ -67,7 +67,7 @@ flowchart LR
 1. **Upload**: [Upload Document](#upload-document) sends a PDF to `POST /v1/accounts/{accountId}/documents`, or [Create Document from Template](#create-document-from-template) generates the document from a ready template and sends it in one step.
 2. **Send**: [Request Signatures](#request-signatures) creates the signature request with `POST /v1/documents/{documentId}/assignments`. Assinafy then emails or messages each signer.
 3. **Track**: [Get Document](#get-document) and [Find Documents](#find-documents) read the status and signing progress; [Update Signing Deadline](#update-signing-deadline) and [Resend Signature Request](#resend-signature-request) nudge an in-flight request.
-4. **Sign**: signers open the signing link and sign in Assinafy, with a one-time code by email or WhatsApp or an ICP-Brasil A1/A3 certificate.
+4. **Sign**: signers open the signing link and sign in Assinafy, with a one-time code by email or WhatsApp, biometric identity verification, or an ICP-Brasil A1/A3 certificate.
 5. **Collect**: [Download Document](#download-document) saves the signed PDF with its signature certificate so later steps can store it.
 
 Triggers fire at the moments that matter: **Document Signed** when the signed PDF is ready, or **New Event (Instant)** for each signing event as it happens.
@@ -96,6 +96,13 @@ For a single running flow, use a Delay/Get Document loop until `certificated`, w
 
 1. **New Event (Instant)** with the events you care about, for example *Document signed by all signers* and *Signer declined the document*.
 2. A Router step that branches on `event`: store the signed PDF on `document_ready`, notify the owner on `signer_rejected_document`.
+
+### Flow recipe: request biometric verification
+
+1. Enable a **New Event (Instant)** flow for `signer_identity_review_required`, `signer_identity_review_rejected` and `document_ready`, with a Router that notifies the owner about reviews and downloads only ready documents.
+2. Upload the PDF and use **Request Signatures** with `verification: "biometric_email"` or `"biometric_whatsapp"`; provide the matching contact and a CPF for a new signer. Use **Update Signer** first if an existing signer needs a CPF. Template roles accept the same verification values.
+3. Save the document and assignment IDs on the source record. The signer completes the ID photos and liveness check in Assinafy.
+4. If review is required, the owner decides it in Assinafy. Approved documents proceed to certification after all signatures; rejected documents follow the cancellation branch. Store the signed PDF from the collection flow.
 
 ## Actions
 
@@ -173,6 +180,7 @@ Returns the signature request:
       "step": 1,
       "verification_method": "Email",
       "notification_method": "Email",
+      "identity_verification_status": null,
       "signed": false,
       "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
     }
@@ -315,8 +323,8 @@ Every document, signer and template input in the actions above is a dropdown, se
 - When every endpoint is taken, the flow does not start unless **Replace Existing Webhook** is turned on. That setting reuses the workspace's oldest endpoint, which then stops delivering to its current system.
 - Turning the flow off deletes its endpoint, which frees the slot. An endpoint that no longer points at the flow is left alone.
 - **Delivery Notice Email** receives Assinafy's notices about failed deliveries. When it is empty, the address of the flow's endpoint or of the oldest endpoint is used.
-- On an API key connection the endpoint is created with signing on. Every delivery then carries a [Standard Webhooks](https://www.standardwebhooks.com) signature (`webhook-id`, `webhook-timestamp`, `webhook-signature`), and the flow ignores deliveries whose HMAC-SHA256 signature does not match the endpoint secret or whose timestamp is more than five minutes off. The flow reads the secret when it is turned on; after rotating the secret in Assinafy, turn the flow off and on again.
-- Assinafy does not give OAuth applications the signing secret, so on an Assinafy Account connection the endpoint is created without signing.
+- On API key and Assinafy Account connections the endpoint is created with signing on. Every delivery then carries a [Standard Webhooks](https://www.standardwebhooks.com) signature (`webhook-id`, `webhook-timestamp`, `webhook-signature`), and the flow ignores deliveries whose HMAC-SHA256 signature does not match the endpoint secret or whose timestamp is more than five minutes off. The flow obtains the secret when it is turned on; after rotating the secret in Assinafy, turn the flow off and on again.
+- OAuth applications receive the signing secret once in the endpoint creation response. The flow stores it with the endpoint ID and reuses it on republish. An unsigned OAuth endpoint, or one whose stored secret is missing, is deleted and recreated when the flow is enabled. API key connections can also read the secret from the secret endpoint.
 - Each flow also registers its address with a random token, and requests without it are ignored. The token stays the same when the flow is republished or turned off and on, so deliveries already on their way still count.
 - For document events, the flow receives the current state of the document, read from the API when the event arrives. If it cannot be read (for example after the document was deleted), the copy sent with the event is used.
 - Assinafy retries a failed delivery once with the same `webhook-id`, which the flow uses as the deduplication key.
@@ -339,7 +347,7 @@ The document is signed as soon as the last signer signs, but the signed PDF is a
 
 ## Verification and costs
 
-Signers prove their identity while signing with one of four methods; A1 and A3 ICP-Brasil certificates both use the digital certificate method:
+Signers prove their identity while signing with one of four verification methods and six invitation combinations; A1 and A3 ICP-Brasil certificates both use the digital certificate method:
 
 | Verification | Invitation | Cost per signer |
 |---|---|---|
@@ -347,8 +355,14 @@ Signers prove their identity while signing with one of four methods; A1 and A3 I
 | WhatsApp code | WhatsApp | 0.45 credit (paid plans) |
 | ICP-Brasil digital certificate (A1 or A3) | Email | 0.5 credit |
 | ICP-Brasil digital certificate (A1 or A3) | WhatsApp | 0.95 credit (0.5 for the certificate signature plus 0.45 for the WhatsApp invitation) |
+| Biometric identity verification | Email | Per-signer verification fee; requires the ID Document + Face Match feature |
+| Biometric identity verification | WhatsApp | Verification fee plus 0.45 credit for the invitation (paid plans) |
 
 When **Verification** is empty, it is email, or WhatsApp when the signer has only a WhatsApp number. Digital certificate signing needs the Digital Certificate feature on the Assinafy plan, the signer's CPF or CNPJ saved in Assinafy (given in the step when the signer is new, or set with **Update Signer**), and the signer alone in their signing order step. Every signature request also uses one document from the plan, or one credit when the allowance is used up.
+
+Biometric verification (`IdDocumentFaceMatchBasic`) checks a government ID photo, a photo of the signer holding it and liveness. It requires a valid CPF saved on the signer and the ID Document + Face Match feature. Both sending actions check the required saved or new CPF/CNPJ before creating or updating any signer. CNPJ is accepted for certificates, but not biometrics. Use the API cost estimate for the current biometric fee.
+
+A biometric signer can sign while their verification is `InReview`; the document then waits at `pending_identity_review` until the workspace owner approves it in Assinafy. Route `signer_identity_review_required` to an owner notification, and wait for `document_ready` or **Document Signed** before downloading. Rejection cancels the document and emits `signer_identity_review_rejected` followed by `user_rejected_document`. Each entry in `signers` exposes `identity_verification_status` (`Pending`, `InReview`, `Approved`, `Declined`, `Expired`, `Abandoned`, or `null`).
 
 ## Signing order
 
@@ -482,6 +496,7 @@ The complete **document output** used by Upload Document, Create Document from T
       "step": 1,
       "verification_method": "Email",
       "notification_method": "Email",
+      "identity_verification_status": null,
       "signed": false,
       "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
     }
@@ -515,6 +530,7 @@ Request Signatures and Update Signing Deadline return an envelope whose `data` i
       "step": 1,
       "verification_method": "Email",
       "notification_method": "Email",
+      "identity_verification_status": null,
       "signed": false,
       "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246?email=maria@example.com"
     }
@@ -597,7 +613,7 @@ Inputs:
 }
 ```
 
-Each signer row also accepts `whatsapp` and `government_id`. Verification property values are `email`, `whatsapp`, `certificate_email`, `certificate_whatsapp`. The piece first reads the document, looks up every signer/copy recipient using the workspace signers list, and creates or updates missing details with the signer requests below. HTTP: `POST /documents/{documentId}/assignments`:
+Each signer row also accepts `whatsapp` and `government_id`. Verification property values are `email`, `whatsapp`, `certificate_email`, `certificate_whatsapp`, `biometric_email`, `biometric_whatsapp`. The piece first reads the document, looks up every signer/copy recipient using the workspace signers list, and creates or updates missing details with the signer requests below. HTTP: `POST /documents/{documentId}/assignments`:
 
 ```json
 {
@@ -620,7 +636,7 @@ Each signer row also accepts `whatsapp` and `government_id`. Verification proper
 }
 ```
 
-Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]` and `DigitalCertificate`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
+Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]`, `DigitalCertificate`/`["Whatsapp"]`, `IdDocumentFaceMatchBasic`/`["Email"]` and `IdDocumentFaceMatchBasic`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
 
 #### Create Document from Template payload
 
@@ -1020,7 +1036,7 @@ Enable lists `GET /accounts/{accountId}/webhooks/endpoints`. When no endpoint po
 }
 ```
 
-`signing_enabled` is `false` on an Assinafy Account connection. A `403` on create means every endpoint is taken; with **Replace Existing Webhook** on, the same body is sent with `PUT` to the oldest endpoint. The API returns the endpoint:
+`signing_enabled` is `true` for both connection types. A `403` on create means every endpoint is taken; with **Replace Existing Webhook** on, API key connections update the oldest endpoint, while OAuth connections delete it and create a new signed endpoint to obtain a new secret. The API returns the endpoint (creation also returns `secret`):
 
 ```json
 {
@@ -1038,12 +1054,13 @@ Enable lists `GET /accounts/{accountId}/webhooks/endpoints`. When no endpoint po
     "is_active": true,
     "signing_enabled": true,
     "created_at": "2026-10-01T12:00:00Z",
-    "updated_at": "2026-10-01T12:00:00Z"
+    "updated_at": "2026-10-01T12:00:00Z",
+    "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
   }
 }
 ```
 
-With signing on, enable then reads `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` and keeps the secret in the flow store:
+The create response includes `secret` alongside the endpoint fields above. The flow keeps it and the endpoint ID in the flow store. An API key connection reads `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` when the response has no secret; OAuth never calls this restricted endpoint. Its response is:
 
 ```json
 {
@@ -1126,7 +1143,7 @@ The output starts with these fields, plus **every** field from the complete [doc
 
 Payload keys become `detail_{key}`; nested values are JSON strings. For non-document events the document-prefixed scalars are null and `document_signers` is `[]`. Activepieces also receives a reserved deduplication key: the `webhook-id` header, or `event_id` when the header is missing. Accepted event codes:
 
-`document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `template_created`, `template_processed`, `template_processing_failed`.
+`document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `signer_identity_verified`, `signer_identity_verification_failed`, `signer_identity_review_required`, `signer_identity_review_approved`, `signer_identity_review_rejected`, `template_created`, `template_processed`, `template_processing_failed`.
 
 ### OAuth protocol payloads
 
@@ -1182,6 +1199,7 @@ Revoke: `POST https://api.assinafy.com.br/v1/oauth/revoke` with URL-encoded `cli
 | `metadata_processing` | Pages and metadata processing |
 | `metadata_ready` | Ready for a signature request |
 | `pending_signature` | Waiting for signers |
+| `pending_identity_review` | All signers signed; identity review must be approved before certification |
 | `certificating` | All signed; preparing final files |
 | `certificated` | Signed files available |
 | `rejected_by_signer` | Declined by a signer |
@@ -1201,7 +1219,7 @@ Document and signature request outputs:
 | `is_closed` | Whether the signing process is finished |
 | `available_files` | Files that can be downloaded, for example `original, certificated, certificate-page, bundle` |
 | `signer_count`, `signed_count`, `signer_emails` | Signing progress |
-| `signers` | One entry per signer: name, email, WhatsApp, step, verification, whether they signed, signing link |
+| `signers` | One entry per signer: name, email, WhatsApp, step, verification, identity verification status, whether they signed, signing link |
 | `assignment_id`, `signature_method`, `expires_at` | The signature request and its deadline |
 | `message`, `sender_email`, `document_id` | Signature request only: invitation text, sender, document |
 | `decline_reason`, `declined_by_name`, `declined_by_email` | Filled when a signer declines |
@@ -1281,11 +1299,11 @@ ASSINAFY_API_KEY=<sandbox key> npm run test:live
 |---|---|
 | `ASSINAFY_ACCOUNT_ID` | Workspace to use when the key has several |
 | `ASSINAFY_LIVE_SEND=1` | Also sends an uploaded document and a ready one-signer template to `example.com` addresses (uses plan documents) |
-| `ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1` | Requires all four cost estimates to succeed; otherwise explicit plan restrictions are checked |
-| `ASSINAFY_LIVE_WEBHOOK=1` | Also turns the New Event trigger on and off: a signed webhook endpoint where the workspace supports endpoints, otherwise the single webhook address, which it restores afterwards; fails instead of replacing another destination |
+| `ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1` | Requires all six cost estimates and enabled assignment checks to succeed; otherwise explicit plan restrictions are checked |
+| `ASSINAFY_LIVE_WEBHOOK=1` | Also turns the New Event trigger on and off: a signed webhook endpoint where the workspace supports endpoints, otherwise the single webhook address, which it restores afterwards; checks the endpoint-limit response and skips registration when all slots are occupied, preserving existing destinations |
 | `ASSINAFY_LIVE_WEBHOOK_EMAIL` | Delivery notice address for the webhook check (defaults to an `example.com` address) |
 
-The suite also checks all four verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. The template sending check requires a ready template with one signer role and no editor fields. These API checks do not complete an OTP or A1/A3 signing session; that requires a recipient-controlled inbox/phone or a compatible certificate.
+The suite checks all six verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. With sending enabled it also creates assignments for all six combinations, with the tested signer in step 2 behind an unsigned email signer; WhatsApp and identity-verification invitations remain inactive. All created resources are removed, including when a check fails. The template sending check requires a ready template with one signer role and no editor fields. These API checks do not complete an OTP, biometric or A1/A3 signing session; that requires the recipient, identity capture or a compatible certificate.
 
 The sandbox limits bursts of requests with HTTP 429; the suite waits for the time the response names and sends the request again.
 

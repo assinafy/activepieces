@@ -34,7 +34,7 @@ export const requestSignatures = createAction({
   audience: 'both',
   aiMetadata: {
     description:
-      'Send an uploaded Assinafy document for electronic signature to signers given by email or WhatsApp number, reusing existing workspace signers and creating missing ones. Assinafy notifies signers right away (or by signing order), and WhatsApp or digital-certificate verification consumes credits. Each call creates a new signature request, so do not retry blindly.',
+      'Send an uploaded Assinafy document for electronic signature to signers given by email or WhatsApp number, reusing existing workspace signers and creating missing ones. Assinafy notifies signers right away (or by signing order), and WhatsApp, biometric or digital-certificate verification consumes credits. Each call creates a new signature request, so do not retry blindly.',
     idempotent: false,
   },
   outputSchema: assinafyOutputSchemas.signatureRequest,
@@ -81,7 +81,7 @@ export const requestSignatures = createAction({
         government_id: Property.ShortText({
           displayName: 'CPF or CNPJ',
           description:
-            'Needed for ICP-Brasil digital certificate signing. Saved only when the signer is created; to change the CPF/CNPJ of an existing signer, use Update Signer.',
+            'CPF required for biometric verification; CPF or CNPJ for ICP-Brasil certificates. Saved only on new signers; use Update Signer for existing ones.',
           required: false,
           placeholder: '390.533.447-05',
         }),

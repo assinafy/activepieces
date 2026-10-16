@@ -173,6 +173,20 @@ async function planSigner({
   }
   const existing =
     saved ?? (await findSigner({ client, signersPath, request }));
+  const method = methodFor(request);
+  const identifier = existing ? existing.government_id : governmentId;
+  const biometric = method.verification_method === 'IdDocumentFaceMatchBasic';
+  const requiredId = biometric ? 'CPF' : 'CPF or CNPJ';
+  if (
+    (method.certificate || biometric) &&
+    (!identifier ||
+      !assinafyValues.isGovernmentId(identifier) ||
+      (biometric && identifier.replace(/[^0-9A-Z]/gi, '').length !== 11))
+  ) {
+    throw new Error(
+      `${label}: ${biometric ? 'biometric verification' : 'digital certificate signing'} requires a valid ${requiredId}. ${existing ? 'Set it with Update Signer before requesting signatures.' : `Fill in ${requiredId} before creating this signer.`}`
+    );
+  }
   const who = email ?? fullName ?? whatsapp;
   if (!existing) {
     if (!fullName) {

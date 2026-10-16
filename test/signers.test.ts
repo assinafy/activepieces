@@ -220,6 +220,52 @@ describe('assignmentFields', () => {
 });
 
 describe('resolve', () => {
+  test.each(['certificate_email', 'biometric_email'])(
+    'requires an identifier before creating a %s signer',
+    async (verification) => {
+      replyData([]);
+      await expect(
+        resolve({
+          email: 'new@example.com',
+          fullName: 'New Person',
+          verification,
+        })
+      ).rejects.toThrow('requires a valid CPF');
+      expect(
+        sentRequests().every((sent) => sent.method === HttpMethod.GET)
+      ).toBe(true);
+    }
+  );
+
+  test.each([undefined, '11.222.333/0001-81', '00000000000', '12ABC345000188'])(
+    'rejects a missing or non-CPF saved biometric identifier (%s)',
+    async (government_id) => {
+      replyData([{ ...apiSigner, government_id }]);
+      await expect(
+        resolve({
+          email: 'maria@example.com',
+          verification: 'biometric_email',
+          governmentId: '39053344705',
+        })
+      ).rejects.toThrow('Set it with Update Signer');
+      expect(sentRequests()).toHaveLength(1);
+    }
+  );
+
+  test('allows CNPJ certificates and uses the saved identifier rather than overwriting it', async () => {
+    replyData([{ ...apiSigner, government_id: '12ABC34501DE35' }]);
+    await expect(
+      resolve({ email: 'maria@example.com', verification: 'certificate_email' })
+    ).resolves.toMatchObject({ id: 'sig_1' });
+    replyData([{ ...apiSigner, government_id: '39053344705' }]);
+    await expect(
+      resolve({ email: 'maria@example.com', verification: 'biometric_email' })
+    ).resolves.toMatchObject({ id: 'sig_1' });
+    expect(sentRequests().every((sent) => sent.method === HttpMethod.GET)).toBe(
+      true
+    );
+  });
+
   test('reuses the signer with the same email, ignoring case', async () => {
     replyData([
       { ...apiSigner, id: 'other', email: 'maria.other@example.com' },
@@ -480,6 +526,27 @@ describe('resolve', () => {
 });
 
 describe('resolveAll', () => {
+  test('a missing saved biometric CPF stops all planned signer mutations', async () => {
+    replyData([]);
+    replyData([apiSigner]);
+    await expect(
+      assinafySigners.resolveAll({
+        client: client(),
+        requests: [
+          request({ email: 'new@example.com', fullName: 'New Person' }),
+          request({
+            label: 'Signer 2',
+            email: 'maria@example.com',
+            verification: 'biometric_email',
+          }),
+        ],
+      })
+    ).rejects.toThrow('Signer 2: biometric verification requires a valid CPF');
+    expect(sentRequests().every((sent) => sent.method === HttpMethod.GET)).toBe(
+      true
+    );
+  });
+
   test('resolves in order and rejects the same person twice', async () => {
     replyData([apiSigner]);
     replyData([{ ...apiSigner, id: 'sig_2', email: 'joao@example.com' }]);

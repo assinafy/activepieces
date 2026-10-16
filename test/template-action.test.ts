@@ -132,6 +132,46 @@ describe('Create Document from Template form', () => {
 });
 
 describe('Create Document from Template', () => {
+  test.each([
+    ['biometric_email', 'Email'],
+    ['biometric_whatsapp', 'Whatsapp'],
+  ])(
+    'sends %s for a template role with a saved CPF',
+    async (verification, channel) => {
+      replyData([apiTemplate]);
+      replyData([
+        {
+          ...apiSigner,
+          government_id: '39053344705',
+          whatsapp_phone_number: '+5548999990000',
+        },
+      ]);
+      replyData(apiDocument);
+      await createDocumentFromTemplate.run(
+        context({
+          props: {
+            template: 'tpl_1',
+            signers: {
+              email_role_client: 'maria@example.com',
+              whatsapp_role_client: '+5548999990000',
+              verification_role_client: verification,
+            },
+          },
+        })
+      );
+      expect(sentRequests().at(-1)?.body).toEqual({
+        signers: [
+          {
+            role_id: 'role_client',
+            id: 'sig_1',
+            verification_method: 'IdDocumentFaceMatchBasic',
+            notification_methods: [channel],
+          },
+        ],
+      });
+    }
+  );
+
   test('signing order ignores copy receiver roles', async () => {
     replyData([
       {

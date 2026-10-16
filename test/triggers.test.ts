@@ -486,10 +486,10 @@ describe('New Event (Instant): webhook endpoints', () => {
     });
   });
 
-  test('does not ask for a signing secret on an OAuth connection', async () => {
+  test('stores the OAuth create-response secret without calling its restricted secret endpoint', async () => {
     replyData([{ id: 'acc_1', name: 'Acme' }]);
     replyData([]);
-    replyData(mine);
+    replyData({ ...mine, signing_enabled: true, secret });
     const store = memoryStore({ webhook_secret: 'stale' });
     await newEvent.onEnable(
       webhookContext({
@@ -497,9 +497,126 @@ describe('New Event (Instant): webhook endpoints', () => {
         extra: { store, auth: oauthAuth },
       })
     );
-    expect(sentRequests()[2].body).toMatchObject({ signing_enabled: false });
+    expect(sentRequests()[2].body).toMatchObject({ signing_enabled: true });
     expect(sentRequests()).toHaveLength(3);
-    await expect(store.get('webhook_secret')).resolves.toBeNull();
+    await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    await expect(store.get('webhook_endpoint_id')).resolves.toBe(mine.id);
+  });
+
+  test('uses the signing secret from an API key create response when provided', async () => {
+    replyData([]);
+    replyData({ ...mine, secret });
+    const store = await enable({ notification_email: 'ops@example.com' });
+    expect(sentRequests()).toHaveLength(2);
+    await expect(store.get('webhook_secret')).resolves.toBe(secret);
+  });
+
+  test('keeps an OAuth endpoint and its stored secret when republishing', async () => {
+    const store = memoryStore({
+      webhook_secret: secret,
+      webhook_endpoint_id: mine.id,
+    });
+    replyData([{ id: 'acc_1' }]);
+    replyData([{ ...mine, signing_enabled: true }]);
+    replyData(mine);
+    await newEvent.onEnable(
+      webhookContext({ extra: { auth: oauthAuth, store } })
+    );
+    expect(sentRequests().at(-1)).toMatchObject({
+      method: HttpMethod.PUT,
+      url: `${endpointsUrl}/${mine.id}`,
+      body: { signing_enabled: true },
+    });
+    expect(sentRequests()).toHaveLength(3);
+    await expect(store.get('webhook_secret')).resolves.toBe(secret);
+  });
+
+  test.each([
+    { signing_enabled: false, endpointId: 'ep_mine' },
+    { signing_enabled: true, endpointId: 'ep_old' },
+    { signing_enabled: true, endpointId: 'ep_mine', lost: true },
+  ])(
+    'recreates an unsigned OAuth endpoint or one without its own secret (%j)',
+    async ({ signing_enabled, endpointId, lost }) => {
+      const store = memoryStore({
+        webhook_endpoint_id: endpointId,
+        ...(lost ? {} : { webhook_secret: secret }),
+      });
+      replyData([{ id: 'acc_1' }]);
+      replyData([{ ...mine, signing_enabled }]);
+      replyData([]);
+      replyData({ ...mine, id: 'ep_new', secret });
+      await newEvent.onEnable(
+        webhookContext({ extra: { auth: oauthAuth, store } })
+      );
+      expect(
+        sentRequests()
+          .slice(2)
+          .map(({ method }) => method)
+      ).toEqual([HttpMethod.DELETE, HttpMethod.POST]);
+      await expect(store.get('webhook_endpoint_id')).resolves.toBe('ep_new');
+      await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    }
+  );
+
+  test.each([undefined, '', 'whsec_', 'not-a-secret'])(
+    'fails setup if OAuth creation returns an unusable secret (%s)',
+    async (secret) => {
+      replyData([{ id: 'acc_1' }]);
+      replyData([]);
+      replyData({ ...mine, secret });
+      await expect(
+        newEvent.onEnable(
+          webhookContext({
+            props: { notification_email: 'ops@example.com' },
+            extra: { auth: oauthAuth },
+          })
+        )
+      ).rejects.toThrow('did not return a webhook signing secret');
+      expect(sentRequests()).toHaveLength(3);
+    }
+  );
+
+  test('replaces the oldest OAuth endpoint only when explicitly allowed and stores a new secret', async () => {
+    replyData([{ id: 'acc_1' }]);
+    replyData([other]);
+    replyError({ status: 403, body: { message: 'Limit reached' } });
+    replyData([]);
+    replyData({ ...mine, secret });
+    await newEvent.onEnable(
+      webhookContext({
+        props: { replace_existing: true },
+        extra: { auth: oauthAuth },
+      })
+    );
+    expect(sentRequests()[3]).toMatchObject({
+      method: HttpMethod.DELETE,
+      url: `${endpointsUrl}/${other.id}`,
+    });
+    expect(sentRequests()[4]).toMatchObject({
+      method: HttpMethod.POST,
+      url: endpointsUrl,
+    });
+  });
+
+  test('drops deliveries if a signed endpoint loses its stored secret', async () => {
+    await expect(
+      newEvent.run(
+        webhookContext({
+          extra: {
+            store: memoryStore({
+              webhook_token: 'token',
+              webhook_endpoint_id: mine.id,
+            }),
+            payload: {
+              body: readyEvent,
+              queryParams: { assinafy_token: 'token' },
+            },
+          },
+        })
+      )
+    ).resolves.toEqual([]);
+    expect(sendRequest).not.toHaveBeenCalled();
   });
 
   test('explains the endpoint limit, and takes over the oldest endpoint only when allowed', async () => {

@@ -20,12 +20,35 @@ const expectedSigner = {
   step: 1,
   verification_method: 'Email',
   notification_method: 'Email',
+  identity_verification_status: null,
   signed: false,
   signing_url:
     'https://api.assinafy.com.br/v1/sign/doc_1?email=maria@example.com',
 };
 
 describe('formatDocument', () => {
+  test('exposes biometric review status while certification waits for approval', () => {
+    const result = formatDocument({
+      ...apiDocument,
+      status: 'pending_identity_review',
+      assignment: {
+        ...apiAssignment,
+        signers: [
+          {
+            ...apiSigner,
+            verification_method: 'IdDocumentFaceMatchBasic',
+            identity_verification_status: 'InReview',
+            completed: true,
+          },
+        ],
+      },
+    });
+    expect(result.status_label).toBe('Waiting for identity review');
+    expect(result.signers[0]).toMatchObject({
+      identity_verification_status: 'InReview',
+      signed: true,
+    });
+  });
   test('flattens a document with its signature request', () => {
     expect(formatDocument(apiDocument)).toEqual({
       id: 'doc_1',
@@ -116,6 +139,7 @@ describe('formatDocument', () => {
       step: null,
       verification_method: null,
       notification_method: null,
+      identity_verification_status: null,
       signed: null,
       signing_url: null,
     });

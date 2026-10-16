@@ -8,6 +8,7 @@ const documentStatusLabels: Record<string, string> = {
   metadata_processing: 'Processing',
   metadata_ready: 'Ready to send',
   pending_signature: 'Waiting for signatures',
+  pending_identity_review: 'Waiting for identity review',
   certificating: 'Signed, certificate being generated',
   certificated: 'Signed',
   rejected_by_signer: 'Declined by a signer',
@@ -69,6 +70,19 @@ const signerVerificationMethods: Record<
     notification_method: 'Whatsapp',
     certificate: true,
   },
+  biometric_email: {
+    label: 'Biometric identity verification, invited by email (paid feature)',
+    verification_method: 'IdDocumentFaceMatchBasic',
+    notification_method: 'Email',
+    certificate: false,
+  },
+  biometric_whatsapp: {
+    label:
+      'Biometric identity verification, invited by WhatsApp (paid feature)',
+    verification_method: 'IdDocumentFaceMatchBasic',
+    notification_method: 'Whatsapp',
+    certificate: false,
+  },
 };
 
 const webhookEventLabels: Record<string, string> = {
@@ -87,6 +101,11 @@ const webhookEventLabels: Record<string, string> = {
   signer_email_verified: 'Signer verified their email',
   signer_whatsapp_verified: 'Signer verified their WhatsApp',
   signer_data_confirmed: 'Signer confirmed their data',
+  signer_identity_verified: 'Signer identity verified',
+  signer_identity_verification_failed: 'Signer identity verification failed',
+  signer_identity_review_required: 'Signer identity review required',
+  signer_identity_review_approved: 'Signer identity review approved',
+  signer_identity_review_rejected: 'Signer identity review rejected',
   template_created: 'Template created',
   template_processed: 'Template processed and ready',
   template_processing_failed: 'Template processing failed',

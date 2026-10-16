@@ -95,7 +95,7 @@ function roleInputs(role: TemplateRole): [string, InputPropertyMap[string]][] {
       Property.ShortText({
         displayName: `${roleName}: CPF or CNPJ`,
         description:
-          'Needed for digital certificate signing. Saved only on new signers; use Update Signer for existing ones',
+          'CPF required for biometric verification; CPF or CNPJ for digital certificates. Saved only on new signers; use Update Signer for existing ones',
         required: false,
         placeholder: '390.533.447-05',
       }),

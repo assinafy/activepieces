@@ -8,6 +8,10 @@ const assignmentSignerFields: OutputSchema['fields'] = [
   { key: 'step', label: 'Signing Order', format: 'number' },
   { key: 'verification_method', label: 'Verification Method' },
   { key: 'notification_method', label: 'Notification Method' },
+  {
+    key: 'identity_verification_status',
+    label: 'Identity Verification Status',
+  },
   { key: 'signed', label: 'Signed', format: 'boolean' },
   { key: 'signing_url', label: 'Signing Link', format: 'url' },
 ];

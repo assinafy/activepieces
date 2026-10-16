@@ -63,6 +63,7 @@ function formatAssignmentSummary(assignment: ApiAssignment | null | undefined) {
       step: signer.step ?? null,
       verification_method: signer.verification_method ?? null,
       notification_method: signer.notification_methods?.[0] ?? null,
+      identity_verification_status: signer.identity_verification_status ?? null,
       signed: signer.completed ?? null,
       signing_url: signingUrls.get(signer.id) ?? null,
     })),
@@ -179,6 +180,7 @@ export type ApiSigner = {
   full_name?: string;
   email?: string | null;
   whatsapp_phone_number?: string | null;
+  government_id?: string | null;
   has_accepted_terms?: boolean;
 };
 
@@ -191,6 +193,7 @@ export type ApiAssignment = {
   signers?: (ApiSigner & {
     verification_method?: string | null;
     notification_methods?: string[] | null;
+    identity_verification_status?: string | null;
     step?: number | null;
     completed?: boolean | null;
   })[];
