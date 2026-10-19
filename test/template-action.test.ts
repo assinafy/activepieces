@@ -156,6 +156,11 @@ describe('Create Document from Template', () => {
               whatsapp_role_client: '+5548999990000',
               verification_role_client: verification,
             },
+            editor_fields: {
+              field_fld_company: ' Acme Ltda ',
+              field_blank: '',
+              ignored: 'x',
+            },
           },
         })
       );
@@ -168,6 +173,7 @@ describe('Create Document from Template', () => {
             notification_methods: [channel],
           },
         ],
+        editor_fields: [{ field_id: 'fld_company', value: 'Acme Ltda' }],
       });
     }
   );
@@ -203,7 +209,12 @@ describe('Create Document from Template', () => {
   });
 
   test('resolves a signer per role and sends the template document request', async () => {
-    replyData([apiTemplate]);
+    replyData([
+      {
+        ...apiTemplate,
+        pages: [],
+      },
+    ]);
     replyData([]);
     replyData({ ...apiSigner, id: 'sig_client' });
     replyData(apiDocument);
@@ -218,11 +229,6 @@ describe('Create Document from Template', () => {
             cpf_role_client: '390.533.447-05',
             verification_role_client: 'certificate_email',
             step_role_client: '1',
-          },
-          editor_fields: {
-            field_fld_company: ' Acme Ltda ',
-            field_blank: '',
-            ignored: 'x',
           },
           document_name: ' NDA - Acme.pdf ',
           message: 'Please sign',
@@ -250,13 +256,32 @@ describe('Create Document from Template', () => {
             step: 1,
           },
         ],
-        editor_fields: [{ field_id: 'fld_company', value: 'Acme Ltda' }],
         name: 'NDA - Acme.pdf',
         message: 'Please sign',
         expires_at: '2026-12-31T18:00:00.000Z',
         tags: ['Contracts', 'NDA'],
       },
     });
+  });
+
+  test('rejects a certificate signer when the template has placed fields', async () => {
+    replyData([apiTemplate]);
+    await expect(
+      createDocumentFromTemplate.run(
+        context({
+          props: {
+            template: 'tpl_1',
+            signers: {
+              email_role_client: 'maria@example.com',
+              verification_role_client: 'certificate_email',
+            },
+          },
+        })
+      )
+    ).rejects.toMatchObject({
+      code: 'DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL',
+    });
+    expect(sentRequests()).toHaveLength(1);
   });
 
   test('defaults each role to email, or WhatsApp when only a number is given', async () => {

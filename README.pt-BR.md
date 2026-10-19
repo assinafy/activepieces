@@ -357,7 +357,7 @@ Os signatários comprovam a identidade durante a assinatura com um de quatro mé
 | Verificação biométrica de identidade | E-mail | Tarifa por signatário; exige o recurso Documento de Identidade + Reconhecimento Facial |
 | Verificação biométrica de identidade | WhatsApp | Tarifa de verificação mais 0,45 crédito pelo convite (planos pagos) |
 
-Quando **Verification** fica em branco, é usado o e-mail, ou o WhatsApp quando o signatário tem apenas número de WhatsApp. A assinatura com certificado digital exige o recurso Certificado Digital no plano da Assinafy, o CPF ou CNPJ do signatário cadastrado na Assinafy (informado na etapa quando o signatário é novo, ou definido com **Update Signer**) e o signatário sozinho na sua etapa da ordem de assinatura. Toda solicitação de assinatura também usa um documento do plano, ou um crédito quando a franquia acaba.
+Quando **Verification** fica em branco, é usado o e-mail, ou o WhatsApp quando o signatário tem apenas número de WhatsApp. A assinatura com certificado digital exige o recurso Certificado Digital no plano da Assinafy, o CPF ou CNPJ do signatário cadastrado na Assinafy (informado na etapa quando o signatário é novo, ou definido com **Update Signer**), o signatário sozinho na sua etapa da ordem de assinatura e `method: "virtual"` na solicitação. Um signatário `DigitalCertificate` não é compatível com uma solicitação `collect` que tenha campos posicionados. Toda solicitação de assinatura também usa um documento do plano, ou um crédito quando a franquia acaba.
 
 A verificação biométrica (`IdDocumentFaceMatchBasic`) exige foto do documento, foto do signatário segurando-o, prova de vida e CPF válido cadastrado. CNPJ serve para certificados, mas não para biometria. Ambas as ações de envio validam o CPF/CNPJ necessário antes de criar ou alterar signatários. Consulte a estimativa da API para a tarifa biométrica atual.
 
@@ -639,11 +639,11 @@ Each signer row also accepts `whatsapp` and `government_id`. Verification proper
 }
 ```
 
-Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]`, `DigitalCertificate`/`["Whatsapp"]`, `IdDocumentFaceMatchBasic`/`["Email"]` and `IdDocumentFaceMatchBasic`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
+É enviado exatamente um método de notificação por signatário. As outras combinações são `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]`, `DigitalCertificate`/`["Whatsapp"]`, `IdDocumentFaceMatchBasic`/`["Email"]` e `IdDocumentFaceMatchBasic`/`["Whatsapp"]`. A1 e A3 usam o mesmo método `DigitalCertificate` da API, que exige `method: "virtual"`; qualquer outro método é recusado com o código `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`. Omita `step` em todos os signatários para assinatura paralela. Resposta: o [payload de solicitação de assinatura](#assignment-payload).
 
 #### Create Document from Template payload
 
-The piece reads `GET /accounts/{accountId}/templates?page=1&per-page=50` and further pages to locate the selected template (up to 500 templates). Roles provide `id`, `name`, `assignment_type`; page fields provide `field_id`, `role_id`, `label`. Non-editor roles appear under Signers; fields belonging to Editor roles appear under Template Fields. Template status must be ready (capitalization is accepted).
+A peça consulta `GET /accounts/{accountId}/templates?page=1&per-page=50` e as páginas seguintes para localizar o modelo selecionado (até 500 modelos). Papéis fornecem `id`, `name`, `assignment_type`; campos de página fornecem `field_id`, `role_id`, `label`. Papéis que não são de editor aparecem em Signers; campos dos papéis Editor aparecem em Template Fields. O status do modelo deve ser ready (sem distinção entre maiúsculas e minúsculas). Um modelo com campos posicionados cria uma solicitação `collect`, então escolher `DigitalCertificate` para qualquer signatário é recusado antes de alterar signatários, com o código `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`; use um modelo sem campos ou outro método de verificação.
 
 Inputs for one signer role and one editor field:
 
@@ -988,7 +988,7 @@ Response body (example balances):
 }
 ```
 
-The endpoint creates no assignment. A workspace plan can reject unavailable verification/notification features with HTTP 403. Custom API Call leaves the envelope inside `body`; its response headers and bodies vary by endpoint.
+O endpoint não cria uma solicitação de assinatura. Um plano pode recusar recursos de verificação ou notificação indisponíveis com HTTP 403. Tanto neste endpoint quanto em `POST /documents/{documentId}/assignments`, Custom API Call recusa um signatário `DigitalCertificate` se `method` não for exatamente `virtual`, com o código `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`. Custom API Call mantém o envelope dentro de `body`; os cabeçalhos e corpos da resposta variam conforme o endpoint.
 
 ### Trigger requests and payloads
 

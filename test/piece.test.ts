@@ -248,6 +248,54 @@ describe('Custom API Call', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['assignments', 'json'],
+    ['assignments/estimate-cost', 'raw'],
+  ])(
+    'refuses collect certificate requests to %s with a stable code',
+    async (path, bodyType) => {
+      const fetchMock = stubFetch();
+      const data = {
+        method: 'collect',
+        signers: [{ verification_method: 'DigitalCertificate' }],
+      };
+      await expect(
+        customApiCall?.run(
+          context({
+            props: {
+              ...props,
+              method: HttpMethod.POST,
+              url: { url: `/documents/doc_1/${path}` },
+              body_type: bodyType,
+              body: {
+                data: bodyType === 'raw' ? JSON.stringify(data) : data,
+              },
+            },
+          })
+        )
+      ).rejects.toMatchObject({
+        code: 'DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  test('leaves a non-JSON raw assignment body to the API', async () => {
+    const fetchMock = stubFetch();
+    await customApiCall?.run(
+      context({
+        props: {
+          ...props,
+          method: HttpMethod.POST,
+          url: { url: '/documents/doc_1/assignments' },
+          body_type: 'raw',
+          body: { data: 'not JSON' },
+        },
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   test('calls production with the OAuth bearer token', async () => {
     const fetchMock = stubFetch();
     await customApiCall?.run(context({ props, extra: { auth: oauthAuth } }));

@@ -358,7 +358,7 @@ Signers prove their identity while signing with one of four verification methods
 | Biometric identity verification | Email | Per-signer verification fee; requires the ID Document + Face Match feature |
 | Biometric identity verification | WhatsApp | Verification fee plus 0.45 credit for the invitation (paid plans) |
 
-When **Verification** is empty, it is email, or WhatsApp when the signer has only a WhatsApp number. Digital certificate signing needs the Digital Certificate feature on the Assinafy plan, the signer's CPF or CNPJ saved in Assinafy (given in the step when the signer is new, or set with **Update Signer**), and the signer alone in their signing order step. Every signature request also uses one document from the plan, or one credit when the allowance is used up.
+When **Verification** is empty, it is email, or WhatsApp when the signer has only a WhatsApp number. Digital certificate signing needs the Digital Certificate feature on the Assinafy plan, the signer's CPF or CNPJ saved in Assinafy (given in the step when the signer is new, or set with **Update Signer**), the signer alone in their signing order step and assignment `method: "virtual"`. A `DigitalCertificate` signer is not supported in a `collect` assignment with placed fields. Every signature request also uses one document from the plan, or one credit when the allowance is used up.
 
 Biometric verification (`IdDocumentFaceMatchBasic`) checks a government ID photo, a photo of the signer holding it and liveness. It requires a valid CPF saved on the signer and the ID Document + Face Match feature. Both sending actions check the required saved or new CPF/CNPJ before creating or updating any signer. CNPJ is accepted for certificates, but not biometrics. Use the API cost estimate for the current biometric fee.
 
@@ -636,11 +636,11 @@ Each signer row also accepts `whatsapp` and `government_id`. Verification proper
 }
 ```
 
-Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]`, `DigitalCertificate`/`["Whatsapp"]`, `IdDocumentFaceMatchBasic`/`["Email"]` and `IdDocumentFaceMatchBasic`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
+Exactly one notification method is sent per signer. The other combinations are `Whatsapp`/`["Whatsapp"]`, `DigitalCertificate`/`["Email"]`, `DigitalCertificate`/`["Whatsapp"]`, `IdDocumentFaceMatchBasic`/`["Email"]` and `IdDocumentFaceMatchBasic`/`["Whatsapp"]`. A1 and A3 use the same `DigitalCertificate` API method, which requires assignment `method: "virtual"`; any other method is rejected with code `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`. Omit `step` on every signer for parallel signing. Response: the [assignment payload](#assignment-payload).
 
 #### Create Document from Template payload
 
-The piece reads `GET /accounts/{accountId}/templates?page=1&per-page=50` and further pages to locate the selected template (up to 500 templates). Roles provide `id`, `name`, `assignment_type`; page fields provide `field_id`, `role_id`, `label`. Non-editor roles appear under Signers; fields belonging to Editor roles appear under Template Fields. Template status must be ready (capitalization is accepted).
+The piece reads `GET /accounts/{accountId}/templates?page=1&per-page=50` and further pages to locate the selected template (up to 500 templates). Roles provide `id`, `name`, `assignment_type`; page fields provide `field_id`, `role_id`, `label`. Non-editor roles appear under Signers; fields belonging to Editor roles appear under Template Fields. Template status must be ready (capitalization is accepted). A template with placed fields creates a `collect` assignment, so choosing `DigitalCertificate` for any signer is rejected before signer changes with code `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`; use a fieldless template or another verification method.
 
 Inputs for one signer role and one editor field:
 
@@ -985,7 +985,7 @@ Response body (example balances):
 }
 ```
 
-The endpoint creates no assignment. A workspace plan can reject unavailable verification/notification features with HTTP 403. Custom API Call leaves the envelope inside `body`; its response headers and bodies vary by endpoint.
+The endpoint creates no assignment. A workspace plan can reject unavailable verification/notification features with HTTP 403. For both this endpoint and `POST /documents/{documentId}/assignments`, Custom API Call rejects a `DigitalCertificate` signer unless `method` is exactly `virtual`, with code `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`. Custom API Call leaves the envelope inside `body`; its response headers and bodies vary by endpoint.
 
 ### Trigger requests and payloads
 

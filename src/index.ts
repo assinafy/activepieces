@@ -2,6 +2,7 @@ import { createPiece, PieceCategory } from '@activepieces/pieces-framework';
 import { createCustomApiCallAction } from '@activepieces/pieces-common';
 import { assinafyAuth } from './lib/auth';
 import { assinafyApi } from './lib/common/client';
+import { assinafySigners } from './lib/common/signers';
 import { assinafyValues } from './lib/common/values';
 import { createDocumentFromTemplate } from './lib/actions/create-document-from-template';
 import { createSigner } from './lib/actions/create-signer';
@@ -63,6 +64,29 @@ export const assinafy = createPiece({
           throw new Error(
             'Turn off "Follow redirects": a redirect could forward your Assinafy credentials to another address. The response then includes the redirect location instead.'
           );
+        }
+        const bodyValue = assinafyValues.isRecord(propsValue['body'])
+          ? propsValue['body']['data']
+          : undefined;
+        let body: unknown = bodyValue;
+        if (typeof bodyValue === 'string') {
+          try {
+            body = JSON.parse(bodyValue);
+          } catch {
+            body = undefined;
+          }
+        }
+        if (
+          propsValue['method'] === 'POST' &&
+          /\/documents\/[^/?#]+\/assignments(?:\/estimate-cost)?\/?(?:[?#]|$)/.test(
+            url
+          ) &&
+          assinafyValues.isRecord(body)
+        ) {
+          assinafySigners.validateAssignmentMethod({
+            method: body['method'],
+            signers: body['signers'],
+          });
         }
         return credentials.headers;
       },

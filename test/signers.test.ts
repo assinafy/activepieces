@@ -188,6 +188,46 @@ describe('validateSigningOrder', () => {
   });
 });
 
+describe('validateAssignmentMethod', () => {
+  const certificateSigner = {
+    verification_method: 'DigitalCertificate',
+  };
+
+  test('allows certificate signers only for virtual assignments', () => {
+    expect(() =>
+      assinafySigners.validateAssignmentMethod({
+        method: 'virtual',
+        signers: [certificateSigner],
+      })
+    ).not.toThrow();
+    expect(() =>
+      assinafySigners.validateAssignmentMethod({
+        method: 'collect',
+        signers: [{ verification_method: 'Email' }],
+      })
+    ).not.toThrow();
+  });
+
+  test('rejects every other certificate assignment method with a stable code', () => {
+    for (const method of ['collect', undefined]) {
+      try {
+        assinafySigners.validateAssignmentMethod({
+          method,
+          signers: [certificateSigner],
+        });
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toMatchObject({
+          code: 'DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL',
+          message: expect.stringContaining(
+            'DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL'
+          ),
+        });
+      }
+    }
+  });
+});
+
 describe('assignmentFields', () => {
   test('defaults to email, or to WhatsApp when only a number is given', () => {
     expect(

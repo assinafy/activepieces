@@ -121,6 +121,32 @@ function validateSigningOrder(requests: SignerRequest[]): void {
   }
 }
 
+function validateAssignmentMethod({
+  method,
+  signers,
+}: {
+  method: unknown;
+  signers: unknown;
+}): void {
+  if (
+    method !== 'virtual' &&
+    Array.isArray(signers) &&
+    signers.some(
+      (signer) =>
+        assinafyValues.isRecord(signer) &&
+        signer['verification_method'] === 'DigitalCertificate'
+    )
+  ) {
+    const code = 'DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL';
+    throw Object.assign(
+      new Error(
+        `${code}: DigitalCertificate signers require assignment method "virtual". Remove placed signer fields or use another verification method.`
+      ),
+      { code }
+    );
+  }
+}
+
 async function findSigner({
   client,
   signersPath,
@@ -326,6 +352,7 @@ export const assinafySigners = {
   assignmentFields,
   requestFromRow,
   resolveAll,
+  validateAssignmentMethod,
   validateContacts,
   validateSigningOrder,
 };

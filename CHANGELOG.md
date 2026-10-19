@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Digital certificate signers are limited to virtual assignments. Create Document from Template and Custom API Call reject collect certificate requests before signer changes or billable API calls with the stable code `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`.
+
 ## 0.2.1
 
 - Request Signatures and Create Document from Template support biometric identity verification with email or WhatsApp invitations, including CPF validation before signer changes.
