@@ -37,6 +37,7 @@ const documentFields: OutputSchema['fields'] = [
   { key: 'status', label: 'Status' },
   { key: 'status_label', label: 'Status Label' },
   { key: 'is_closed', label: 'Closed', format: 'boolean' },
+  { key: 'has_contract', label: 'Has Contract', format: 'boolean' },
   { key: 'account_id', label: 'Workspace ID' },
   { key: 'template_id', label: 'Template ID' },
   { key: 'page_count', label: 'Page Count', format: 'number' },
@@ -59,7 +60,358 @@ const signerFields: OutputSchema['fields'] = [
   { key: 'has_accepted_terms', label: 'Accepted Terms', format: 'boolean' },
 ];
 
+const amendmentFields: OutputSchema['fields'] = [
+  {
+    key: 'resource',
+    label: 'Resource Type',
+  },
+  {
+    key: 'document_id',
+    label: 'Document ID',
+  },
+  {
+    key: 'document_name',
+    label: 'Document Name',
+  },
+  {
+    key: 'parent_document_id',
+    label: 'Parent Document ID',
+  },
+  {
+    key: 'relation_type',
+    label: 'Relation Type',
+  },
+  {
+    key: 'number',
+    label: 'Amendment Number',
+    format: 'number',
+  },
+  {
+    key: 'status',
+    label: 'Status',
+  },
+  {
+    key: 'document_status',
+    label: 'Document Status',
+  },
+  {
+    key: 'apply_error',
+    label: 'Apply Error',
+  },
+  {
+    key: 'currency',
+    label: 'Currency',
+  },
+  {
+    key: 'terms',
+    label: 'Terms',
+  },
+  {
+    key: 'changes',
+    label: 'Changes',
+  },
+  {
+    key: 'applied_at',
+    label: 'Applied At',
+    format: 'datetime',
+  },
+  {
+    key: 'created_at',
+    label: 'Created At',
+    format: 'datetime',
+  },
+  {
+    key: 'updated_at',
+    label: 'Updated At',
+    format: 'datetime',
+  },
+];
+
+const contractFields: OutputSchema['fields'] = [
+  {
+    key: 'resource',
+    label: 'Resource Type',
+  },
+  {
+    key: 'document_id',
+    label: 'Document ID',
+  },
+  {
+    key: 'status',
+    label: 'Status',
+  },
+  {
+    key: 'counterparty_name',
+    label: 'Counterparty Name',
+  },
+  {
+    key: 'counterparty_taxpayer_id',
+    label: 'Counterparty CPF/CNPJ',
+  },
+  {
+    key: 'value',
+    label: 'Value',
+    format: 'number',
+  },
+  {
+    key: 'currency',
+    label: 'Currency',
+  },
+  {
+    key: 'start_date',
+    label: 'Start Date',
+  },
+  {
+    key: 'end_date',
+    label: 'End Date',
+  },
+  {
+    key: 'auto_renew',
+    label: 'Auto Renew',
+    format: 'boolean',
+  },
+  {
+    key: 'renewal_term_months',
+    label: 'Renewal Term Months',
+    format: 'number',
+  },
+  {
+    key: 'notice_period_days',
+    label: 'Notice Period Days',
+    format: 'number',
+  },
+  {
+    key: 'term',
+    label: 'Term',
+    format: 'number',
+  },
+  {
+    key: 'owner_id',
+    label: 'Owner ID',
+  },
+  {
+    key: 'metadata',
+    label: 'Metadata',
+  },
+  {
+    key: 'external_references',
+    label: 'External References',
+    listItems: [
+      {
+        key: 'system',
+        label: 'System',
+      },
+      {
+        key: 'id',
+        label: 'External ID',
+      },
+    ],
+  },
+  {
+    key: 'document',
+    label: 'Document',
+  },
+  {
+    key: 'amendments',
+    label: 'Amendments',
+    listItems: amendmentFields,
+  },
+  {
+    key: 'created_at',
+    label: 'Created At',
+    format: 'datetime',
+  },
+  {
+    key: 'updated_at',
+    label: 'Updated At',
+    format: 'datetime',
+  },
+];
+
+const eventFields: OutputSchema['fields'] = [
+  {
+    key: 'event_id',
+    label: 'Event Id',
+  },
+  {
+    key: 'event',
+    label: 'Event',
+  },
+  {
+    key: 'message',
+    label: 'Message',
+  },
+  {
+    key: 'occurred_at',
+    label: 'Occurred At',
+    format: 'datetime',
+  },
+  {
+    key: 'account_id',
+    label: 'Account Id',
+  },
+  {
+    key: 'actor_type',
+    label: 'Actor Type',
+  },
+  {
+    key: 'actor_id',
+    label: 'Actor Id',
+  },
+  {
+    key: 'actor_name',
+    label: 'Actor Name',
+  },
+  {
+    key: 'actor_email',
+    label: 'Actor Email',
+    format: 'email',
+  },
+  {
+    key: 'object_type',
+    label: 'Object Type',
+  },
+  {
+    key: 'object_id',
+    label: 'Object Id',
+  },
+  {
+    key: 'object_name',
+    label: 'Object Name',
+  },
+  {
+    key: 'detail_changed',
+    label: 'Changed',
+  },
+  {
+    key: 'detail_changes',
+    label: 'Changes',
+  },
+  {
+    key: 'detail_days_before',
+    label: 'Days Before',
+    format: 'number',
+  },
+  {
+    key: 'detail_document_id',
+    label: 'Document Id',
+  },
+  {
+    key: 'detail_end_date',
+    label: 'End Date',
+  },
+  {
+    key: 'detail_error_message',
+    label: 'Error Message',
+  },
+  {
+    key: 'detail_evidence',
+    label: 'Evidence',
+  },
+  {
+    key: 'detail_note',
+    label: 'Note',
+  },
+  {
+    key: 'detail_notification_method',
+    label: 'Notification Method',
+  },
+  {
+    key: 'detail_number',
+    label: 'Number',
+    format: 'number',
+  },
+  {
+    key: 'detail_parent_document_id',
+    label: 'Parent Document Id',
+  },
+  {
+    key: 'detail_reason',
+    label: 'Reason',
+  },
+  {
+    key: 'detail_reason_codes',
+    label: 'Reason Codes',
+  },
+  {
+    key: 'detail_relation_type',
+    label: 'Relation Type',
+  },
+  {
+    key: 'detail_reviewer_id',
+    label: 'Reviewer Id',
+  },
+  {
+    key: 'detail_reviewer_name',
+    label: 'Reviewer Name',
+  },
+  {
+    key: 'detail_signer_email',
+    label: 'Signer Email',
+    format: 'email',
+  },
+  {
+    key: 'detail_signer_full_name',
+    label: 'Signer Full Name',
+  },
+  {
+    key: 'detail_signer_whatsapp_phone_number',
+    label: 'Signer Whatsapp Phone Number',
+  },
+  {
+    key: 'detail_terms',
+    label: 'Terms',
+  },
+  {
+    key: 'detail_user_email',
+    label: 'User Email',
+    format: 'email',
+  },
+  {
+    key: 'detail_user_name',
+    label: 'User Name',
+  },
+  {
+    key: 'detail_user_telephone',
+    label: 'User Telephone',
+  },
+  {
+    key: 'detail_verification_method',
+    label: 'Verification Method',
+  },
+];
+
 export const assinafyOutputSchemas = {
+  event: {
+    fields: [
+      ...eventFields,
+      ...documentFields.map((field) => ({
+        ...field,
+        key: `document_${field.key}`,
+        label: `Document: ${field.label}`,
+      })),
+    ],
+  },
+  contract: {
+    fields: [
+      ...contractFields,
+      ...amendmentFields.filter(
+        (field) =>
+          !contractFields.some((contract) => contract.key === field.key)
+      ),
+    ],
+  },
+  contractList: {
+    itemLabel: '{document_id}',
+    fields: [
+      {
+        key: 'contracts',
+        label: 'Contracts',
+        value: '',
+        listItems: contractFields,
+      },
+    ],
+  },
   document: { fields: documentFields },
   documentList: {
     itemLabel: '{name}',

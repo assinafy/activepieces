@@ -16,6 +16,7 @@ import {
 } from '../common/client';
 import { assinafyConstants } from '../common/constants';
 import { ApiDocument, assinafyFormat } from '../common/format';
+import { assinafyOutputSchemas } from '../output-schemas';
 import { assinafySample } from '../common/sample';
 import { assinafyValues } from '../common/values';
 
@@ -240,20 +241,40 @@ async function saveEndpoint({
   secret: string | null;
 }): Promise<ApiEndpoint> {
   if (target) {
-    if (oauth && (!target.signing_enabled || !secret)) {
-      // OAuth can recover a lost signing secret only by recreating the endpoint.
-      await client.find({
-        method: HttpMethod.DELETE,
-        path: await endpointPath({ client, id: target.id }),
-      });
-    } else {
-      const saved = await client.request<ApiEndpoint>({
-        method: HttpMethod.PUT,
-        path: await endpointPath({ client, id: target.id }),
-        body,
-      });
-      return { ...saved, secret: oauth ? (secret ?? undefined) : saved.secret };
+    const saved = await client.request<ApiEndpoint>({
+      method: HttpMethod.PUT,
+      path: await endpointPath({ client, id: target.id }),
+      body,
+    });
+    if (!oauth || saved.secret) {
+      return saved;
     }
+    if (target.signing_enabled && secret) {
+      return { ...saved, secret };
+    }
+    try {
+      const rotated = await client.request<{ secret: string }>({
+        method: HttpMethod.POST,
+        path: await endpointPath({
+          client,
+          id: target.id,
+          suffix: '/secret/rotate',
+        }),
+      });
+      return { ...saved, secret: rotated.secret };
+    } catch (error) {
+      if (
+        !(error instanceof AssinafyApiError) ||
+        ![404, 405].includes(error.status)
+      ) {
+        throw error;
+      }
+    }
+    // Older environments cannot rotate a lost OAuth signing secret.
+    await client.find({
+      method: HttpMethod.DELETE,
+      path: await endpointPath({ client, id: target.id }),
+    });
   }
   try {
     return await client.request<ApiEndpoint>({
@@ -301,28 +322,7 @@ const SETUP_NOTE = `Turning this flow on registers a webhook endpoint for it in 
 - Where a workspace supports only its single webhook address, the flow uses that address, and **Replace Existing Webhook** allows taking it over from another system.
 - Need more independent flows than endpoints? Use the **Document Signed** trigger, which checks Assinafy every few minutes instead.`;
 
-const SAMPLE_DOCUMENT = assinafySample.document;
-
-const SAMPLE_EVENT = {
-  event_id: 4821,
-  event: 'document_ready',
-  message: 'The document was signed by all signers.',
-  occurred_at: '2026-09-01T14:32:10.000Z',
-  account_id: 'd199996981dbd199996981db',
-  actor_type: 'Account',
-  actor_id: 'd199996981dbd199996981db',
-  actor_name: 'Example Workspace',
-  actor_email: null,
-  object_type: 'Document',
-  object_id: '615601fab04c0a3147bb1246',
-  object_name: 'Service agreement.pdf',
-  ...Object.fromEntries(
-    Object.entries(SAMPLE_DOCUMENT).map(([key, value]) => [
-      `document_${key}`,
-      value,
-    ])
-  ),
-};
+const SAMPLE_EVENT = assinafySample.event('document_ready');
 
 export const newEvent = createTrigger({
   auth: assinafyAuth,
@@ -330,11 +330,12 @@ export const newEvent = createTrigger({
   classification: 'READ',
   displayName: 'New Event (Instant)',
   description:
-    'Triggers instantly when a signing event happens, such as a document signed or declined.',
+    'Triggers instantly when a signing or contract event happens, such as a document signed, declined or a contract nearing its end.',
   aiMetadata: {
     description:
-      'Fires once per Assinafy webhook event of the selected types, delivered instantly: for example document_ready when every signer has signed, or signer_rejected_document when someone declines. Each payload is one event with its actor, event details and, for document events, the current state of the document.',
+      'Fires once per Assinafy webhook event of the selected types, delivered instantly: for example document_ready when every signer has signed, signer_rejected_document when someone declines, or document_contract_expiring when a contract approaches its end date. Each payload is one event with its actor, event details and, for document events, the current state of the document.',
   },
+  outputSchema: assinafyOutputSchemas.event,
   type: TriggerStrategy.WEBHOOK,
   props: {
     setup: Property.MarkDown({
@@ -382,6 +383,7 @@ export const newEvent = createTrigger({
       label: 'Delivery Notice Email',
     });
     const client = assinafyApi.forTrigger(context.auth);
+    await context.store.put(SIGNING_REQUIRED_KEY, true);
     const token =
       (await context.store.get<string>(TOKEN_KEY)) ??
       randomBytes(24).toString('hex');
@@ -400,6 +402,7 @@ export const newEvent = createTrigger({
       });
       await context.store.delete(SECRET_KEY);
       await context.store.delete(ENDPOINT_KEY);
+      await context.store.delete(SIGNING_REQUIRED_KEY);
       return;
     }
     const ours = endpoints.find((endpoint) =>
@@ -463,6 +466,7 @@ export const newEvent = createTrigger({
       await unsubscribe({ client, webhookUrl: context.webhookUrl });
       await context.store.delete(SECRET_KEY);
       await context.store.delete(ENDPOINT_KEY);
+      await context.store.delete(SIGNING_REQUIRED_KEY);
       return;
     }
     const ours = endpoints.find((endpoint) =>
@@ -476,6 +480,7 @@ export const newEvent = createTrigger({
     }
     await context.store.delete(SECRET_KEY);
     await context.store.delete(ENDPOINT_KEY);
+    await context.store.delete(SIGNING_REQUIRED_KEY);
   },
   async test(context) {
     const client = assinafyApi.forTrigger(context.auth);
@@ -497,7 +502,9 @@ export const newEvent = createTrigger({
           document: isDocument(payload['object']) ? payload['object'] : null,
         })
       );
-    return events.length > 0 ? events : [SAMPLE_EVENT];
+    return events.length > 0
+      ? events
+      : context.propsValue.events.slice(0, 5).map(assinafySample.event);
   },
   async run(context) {
     const expected = await context.store.get<string>(TOKEN_KEY);
@@ -511,7 +518,9 @@ export const newEvent = createTrigger({
     }
     const secret = await context.store.get<string>(SECRET_KEY);
     if (
-      ((await context.store.get<string>(ENDPOINT_KEY)) && !secret) ||
+      (((await context.store.get<boolean>(SIGNING_REQUIRED_KEY)) ||
+        (await context.store.get<string>(ENDPOINT_KEY))) &&
+        !secret) ||
       (secret &&
         !signatureValid({
           secret,
@@ -573,6 +582,7 @@ const TOKEN_KEY = 'webhook_token';
 const TOKEN_PARAM = 'assinafy_token';
 const SECRET_KEY = 'webhook_secret';
 const ENDPOINT_KEY = 'webhook_endpoint_id';
+const SIGNING_REQUIRED_KEY = 'webhook_signing_required';
 const ENDPOINT_NAME = 'Activepieces';
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 

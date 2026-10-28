@@ -8,6 +8,7 @@ function formatDocument(document: ApiDocument) {
     status: document.status ?? null,
     status_label: statusLabel(document.status),
     is_closed: document.is_closed ?? null,
+    has_contract: document.has_contract ?? null,
     account_id: document.account_id ?? null,
     template_id: document.template_id ?? null,
     page_count: document.pages ? document.pages.length : null,
@@ -210,6 +211,7 @@ export type ApiDocument = {
   status?: string;
   artifacts?: Record<string, string>;
   is_closed?: boolean;
+  has_contract?: boolean;
   signing_url?: string;
   decline_reason?: string | null;
   declined_by?: ApiSigner | null;

@@ -195,7 +195,7 @@ async function callPage<T>({
   };
 }
 
-async function callAll<T extends { id: string }>({
+async function callAll<T extends { id?: string; document_id?: string }>({
   credentials,
   request,
   maxItems,
@@ -216,8 +216,22 @@ async function callAll<T extends { id: string }>({
         queryParams: { ...request.queryParams, page, 'per-page': pageSize },
       },
     });
-    const newItems = items.filter((item) => !found.has(item.id));
-    newItems.forEach((item) => found.set(item.id, item));
+    const newItems: T[] = [];
+    for (const item of items) {
+      const id = assinafyValues.isRecord(item)
+        ? (item.id ?? item.document_id)
+        : undefined;
+      if (typeof id !== 'string' || !id.trim()) {
+        throw new AssinafyApiError({
+          status: 502,
+          message: 'Assinafy returned a list item without an ID.',
+        });
+      }
+      if (!found.has(id)) {
+        newItems.push(item);
+        found.set(id, item);
+      }
+    }
     const lastPage =
       pageCount === undefined ? items.length < pageSize : page >= pageCount;
     if (lastPage || newItems.length === 0 || (until && newItems.some(until))) {
@@ -278,7 +292,7 @@ function fromCredentials(credentials: AssinafyCredentials) {
       callList<T>({ credentials, request }),
     listPage: <T>(request: AssinafyRequest) =>
       callPage<T>({ credentials, request }),
-    listAll: <T extends { id: string }>(options: {
+    listAll: <T extends { id?: string; document_id?: string }>(options: {
       request: AssinafyRequest;
       maxItems: number;
       until?: (item: T) => boolean;
@@ -348,8 +362,23 @@ async function toAssinafyError(error: unknown): Promise<Error> {
   }
   const { status, body } = error.response;
   const parsed = await parseJson(body);
+  const code =
+    assinafyValues.isRecord(parsed) && typeof parsed['code'] === 'string'
+      ? parsed['code']
+      : undefined;
+  const errors =
+    assinafyValues.isRecord(parsed) && Array.isArray(parsed['errors'])
+      ? parsed['errors'].filter(
+          (entry): entry is AssinafyFieldError =>
+            assinafyValues.isRecord(entry) &&
+            (entry['field'] === null || typeof entry['field'] === 'string') &&
+            typeof entry['code'] === 'string' &&
+            typeof entry['message'] === 'string'
+        )
+      : undefined;
   const parts = [
     `Assinafy API error (HTTP ${status})`,
+    code,
     apiMessage(parsed),
     apiDetails(parsed),
     STATUS_HINTS[status],
@@ -357,6 +386,8 @@ async function toAssinafyError(error: unknown): Promise<Error> {
   return new AssinafyApiError({
     status,
     message: parts.filter(Boolean).join(': '),
+    code,
+    errors,
   });
 }
 
@@ -391,7 +422,7 @@ function apiDetails(body: unknown): string | undefined {
   if (!assinafyValues.isRecord(body)) {
     return undefined;
   }
-  const data = body['data'];
+  const data = body['errors'] ?? body['data'];
   if (
     data === null ||
     data === undefined ||
@@ -418,13 +449,33 @@ const ASSINAFY_API_URLS = {
 
 export class AssinafyApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly errors?: AssinafyFieldError[];
 
-  constructor({ status, message }: { status: number; message: string }) {
+  constructor({
+    status,
+    message,
+    code,
+    errors,
+  }: {
+    status: number;
+    message: string;
+    code?: string;
+    errors?: AssinafyFieldError[];
+  }) {
     super(message);
     this.name = 'AssinafyApiError';
     this.status = status;
+    this.code = code;
+    this.errors = errors;
   }
 }
+
+type AssinafyFieldError = {
+  field: string | null;
+  code: string;
+  message: string;
+};
 
 export const assinafyApi = {
   urls: ASSINAFY_API_URLS,

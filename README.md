@@ -5,7 +5,7 @@
 Send documents for legally valid electronic signature with [Assinafy](https://www.assinafy.com.br) and act on the result in [Activepieces](https://www.activepieces.com) flows: upload a PDF, invite signers by email or WhatsApp, wait for the signatures and store the signed PDF wherever you need it.
 
 - Package: `@assinafy/piece-assinafy`
-- Requires Activepieces 0.88.2 or later running Node.js 24 LTS
+- Requires Activepieces 0.88.2 or later running Node.js 24 or 26 LTS
 - Assinafy accepts only HTTPS with TLS 1.2 or higher, which the Node.js runtime of Activepieces uses by default
 - API reference: <https://api.assinafy.com.br/v1/docs>
 
@@ -104,6 +104,16 @@ For a single running flow, use a Delay/Get Document loop until `certificated`, w
 3. Save the document and assignment IDs on the source record. The signer completes the ID photos and liveness check in Assinafy.
 4. If review is required, the owner decides it in Assinafy. Approved documents proceed to certification after all signatures; rejected documents follow the cancellation branch. Store the signed PDF from the collection flow.
 
+### Flow recipe: track a contract through renewal
+
+1. Enable a collection flow first: **New Event** with contract renewal notice, expiring, expired, renewed, terminated and amended events → Router → notify the owner or update your CRM.
+2. Upload a PDF or create it from a template. Store its document ID on the source record.
+3. Run **Set Contract Terms** with that ID, dates, counterparty, amount, renewal settings and an external CRM reference. Then request signatures using email, WhatsApp, biometrics or an ICP-Brasil certificate.
+4. Keep the signed-file collection flow: `document_ready` → **Download Document** → storage/CRM update. Contract tracking does not replace signing or certification.
+5. For a signed change, upload its instrument and use **Set Contract Terms** with `parent_document_id` and `relation_type`; send it for signature. The API applies it after certification and emits `document_contract_amended`.
+6. For a direct renewal, **Get Contract** → **Renew Contract**, mapping its current `term` and `updated_at`. For termination, map `updated_at` into **Terminate Contract**.
+7. Use a scheduled **Find Contracts** flow to reconcile recent changes and missed webhooks, matching `document_id` or external reference. **Get Related Contracts** returns the complete family.
+
 ## Actions
 
 Each action below lists the Assinafy API endpoint it calls and an example of the data it returns. All outputs use flat fields, except `signers`, which lists one record per signer so flows can loop over them. See [Output fields](#output-fields) for the full field list.
@@ -124,6 +134,7 @@ Returns the document, for example:
   "status": "uploading",
   "status_label": "Uploading",
   "is_closed": false,
+    "has_contract": false,
   "account_id": "d199996981dbd199996981db",
   "page_count": null,
   "available_files": null,
@@ -304,6 +315,19 @@ Changes the name, contact details or CPF/CNPJ of a saved signer; only the fields
 
 Returns the signer shape shown in [Find Signers](#find-signers).
 
+### Contract Management
+
+| Action | Purpose |
+|---|---|
+| Find Contracts | Search by status, counterparty, date or CRM reference |
+| Get Contract | Read one document's terms or amendment |
+| Get Related Contracts | Read the root contract and all linked instruments |
+| Set Contract Terms | Create/change terms, or link/unlink an instrument |
+| Renew Contract | Advance the term with a retry-safe term/date guard |
+| Terminate Contract | Close the contract and stop lifecycle alerts |
+
+See the complete [contract inputs, HTTP payloads and responses](#contract-management-requests-and-responses). Writes require contract tracking on the workspace plan; read access remains available after that entitlement lapses.
+
 ### Custom API Call
 
 Calls any endpoint of the Assinafy API with the connection's credentials, for endpoints the piece does not cover. The credentials are sent only to the connection's Assinafy address, so **Follow redirects** must stay off. Workspace-scoped paths such as `/accounts/{accountId}/signers` need your workspace ID, which the piece resolves for you on its own actions.
@@ -324,10 +348,10 @@ Every document, signer and template input in the actions above is a dropdown, se
 - Turning the flow off deletes its endpoint, which frees the slot. An endpoint that no longer points at the flow is left alone.
 - **Delivery Notice Email** receives Assinafy's notices about failed deliveries. When it is empty, the address of the flow's endpoint or of the oldest endpoint is used.
 - On API key and Assinafy Account connections the endpoint is created with signing on. Every delivery then carries a [Standard Webhooks](https://www.standardwebhooks.com) signature (`webhook-id`, `webhook-timestamp`, `webhook-signature`), and the flow ignores deliveries whose HMAC-SHA256 signature does not match the endpoint secret or whose timestamp is more than five minutes off. The flow obtains the secret when it is turned on; after rotating the secret in Assinafy, turn the flow off and on again.
-- OAuth applications receive the signing secret once in the endpoint creation response. The flow stores it with the endpoint ID and reuses it on republish. An unsigned OAuth endpoint, or one whose stored secret is missing, is deleted and recreated when the flow is enabled. API key connections can also read the secret from the secret endpoint.
+- OAuth applications receive the signing secret when creating an endpoint, enabling signing, or rotating its secret. The flow stores it with the endpoint ID and reuses it on republish. If the secret is lost, it updates the endpoint and rotates the secret in place. Only older environments whose rotation endpoint returns 404/405 require recreation. API key connections can also read the secret. Failed signed-endpoint setup rejects unsigned deliveries until setup succeeds.
 - Each flow also registers its address with a random token, and requests without it are ignored. The token stays the same when the flow is republished or turned off and on, so deliveries already on their way still count.
 - For document events, the flow receives the current state of the document, read from the API when the event arrives. If it cannot be read (for example after the document was deleted), the copy sent with the event is used.
-- Assinafy retries a failed delivery once with the same `webhook-id`, which the flow uses as the deduplication key.
+- Assinafy makes up to six attempts about ten minutes apart, with the same `webhook-id`, which the flow uses for deduplication. After ten consecutive failures the endpoint pauses; probes after 3, 15 and 60 minutes, then every 6 hours, resume its backlog when a probe succeeds. Delivery history is retained for seven days.
 - Where the workspace supports only a single webhook address (the endpoints path answers `404`), the flow uses `/v1/accounts/{accountId}/webhooks/subscriptions` instead. It then refuses to take over an address that delivers to another system unless **Replace Existing Webhook** is on, and turning the flow off deactivates the address while it still points at the flow.
 
 The document is signed as soon as the last signer signs, but the signed PDF is available only after certification finishes. **Document Signed** fires after certification; **Download Document** also waits up to a minute while certification is still running.
@@ -370,7 +394,7 @@ Leave **Signing Order** empty for everyone to sign at the same time. To sign in 
 
 ## Request and response reference
 
-These examples use fictional IDs and `example.com` addresses. Replace them with values from your workspace. Deadlines are examples and must still be at least one hour after execution. **Inputs** are the piece's property keys for flow mapping; **HTTP** is the request sent to Assinafy. Optional empty values are omitted. The reusable payloads below include every output field exposed by the piece; the API can return additional fields, and missing optional fields map to `null` (signer lists map to `[]`). This integration exposes twelve dedicated actions, Custom API Call and two triggers; other API operations are available through Custom API Call.
+These examples use fictional IDs and `example.com` addresses. Replace them with values from your workspace. Deadlines are examples and must still be at least one hour after execution. Date-only deadlines use 23:59 UTC; ISO datetimes without an offset use UTC. Impossible calendar dates are rejected. **Inputs** are the piece's property keys for flow mapping; **HTTP** is the request sent to Assinafy. Optional empty values are omitted. The reusable payloads below include every output field exposed by the piece; the API can return additional fields, and missing optional fields map to `null` (signer lists map to `[]`). This integration exposes eighteen dedicated actions, Custom API Call and two triggers; other API operations are available through Custom API Call.
 
 ### HTTP conventions
 
@@ -401,6 +425,7 @@ A successful document read uses this envelope. `assignment` is populated when av
       "original": "https://api.assinafy.com.br/v1/documents/615601fab04c0a3147bb1246/download/original"
     },
     "is_closed": false,
+    "has_contract": false,
     "signing_url": "https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246",
     "decline_reason": null,
     "declined_by": null,
@@ -470,6 +495,7 @@ The complete **document output** used by Upload Document, Create Document from T
   "status": "pending_signature",
   "status_label": "Waiting for signatures",
   "is_closed": false,
+    "has_contract": false,
   "account_id": "d199996981dbd199996981db",
   "template_id": null,
   "page_count": 1,
@@ -665,7 +691,7 @@ Inputs for one signer role and one editor field:
 }
 ```
 
-Each role also accepts `whatsapp_{roleId}` and `cpf_{roleId}`. CopyReceiver roles receive copies without signing; their verification and signing-order inputs are ignored and they do not occupy a signing step. The piece resolves workspace signers before generating the document. HTTP: `POST /accounts/{accountId}/templates/{templateId}/documents`:
+Each role also accepts `whatsapp_{roleId}` and `cpf_{roleId}`. CopyReceiver roles are optional: leave all their contact inputs empty to omit a copy. Supplied copy receivers receive copies without signing; verification/order inputs are ignored and they do not occupy a signing step. Every Editor field must have a nonempty value before any signer is created or updated. Populated field mappings outside the selected template’s Editor fields are rejected. The piece resolves workspace signers before generating the document. HTTP: `POST /accounts/{accountId}/templates/{templateId}/documents`:
 
 ```json
 {
@@ -1145,6 +1171,243 @@ Payload keys become `detail_{key}`; nested values are JSON strings. For non-docu
 
 `document_ready`, `signer_signed_document`, `signer_rejected_document`, `user_rejected_document`, `signer_viewed_document`, `signature_requested`, `assignment_created`, `document_uploaded`, `document_metadata_ready`, `document_prepared`, `document_processing_failed`, `signer_created`, `signer_email_verified`, `signer_whatsapp_verified`, `signer_data_confirmed`, `signer_identity_verified`, `signer_identity_verification_failed`, `signer_identity_review_required`, `signer_identity_review_approved`, `signer_identity_review_rejected`, `template_created`, `template_processed`, `template_processing_failed`.
 
+### Contract management requests and responses
+
+Contract tracking (CLM / Gestão de Contratos) belongs to an existing document. The six contract actions use the connection's workspace. OAuth reads require `documents:read`, writes require `documents:write`; these scopes are already requested by the connection. Writes require a plan with contract tracking; reads remain available when that entitlement lapses. Dates are calendar dates in `YYYY-MM-DD`, from year 1000. Lifecycle processing uses the Brasília calendar day.
+
+These actions return the API's `data` object or array directly, retaining nested objects, explicit nulls and additional API fields. They do not flatten contract terms or amendments. Document outputs also expose `has_contract`; New Event exposes it as `document_has_contract`.
+
+| Action | Input property keys | HTTP operation |
+|---|---|---|
+| Find Contracts | `search`, `status` (array), `counterparty`, `end_date_from`, `end_date_to`, `ending_within_days`, `external_system`, `external_id`, `sort`, `expand_document`, `limit` | `GET /accounts/{accountId}/contracts` |
+| Get Contract | `document` | `GET /accounts/{accountId}/documents/{documentId}/contract` |
+| Get Related Contracts | `document` | `GET /accounts/{accountId}/documents/{documentId}/contract/related` |
+| Set Contract Terms | `document`, `terms` (JSON object) | `PUT /accounts/{accountId}/documents/{documentId}/contract` |
+| Renew Contract | `document`, `renewal` (JSON object) | `POST /accounts/{accountId}/documents/{documentId}/contract/renew` |
+| Terminate Contract | `document`, optional `reason`, optional `updated_at` | `POST /accounts/{accountId}/documents/{documentId}/contract/terminate` |
+
+#### Set Contract Terms payload
+
+Inputs:
+
+```json
+{
+  "document": "doc_contract",
+  "terms": {
+    "status": "active",
+    "counterparty_name": "Example Ltd",
+    "counterparty_taxpayer_id": "11.222.333/0001-81",
+    "value": 120000.5,
+    "currency": "BRL",
+    "start_date": "2026-11-01",
+    "end_date": "2027-10-31",
+    "auto_renew": true,
+    "renewal_term_months": 12,
+    "notice_period_days": 30,
+    "owner_id": "user_owner",
+    "metadata": { "crm_stage": "won" },
+    "external_references": [{ "system": "hubspot", "id": "deal_123" }]
+  }
+}
+```
+
+HTTP body is exactly `terms`. All fields are optional, but the object must contain at least one attribute. A later write can send only the fields to change and `updated_at` from the latest read. The API returns `409` with `code: "ContractChanged"` if another writer changed the terms. Read the contract again and check the intended change; do not blindly replace that precondition and retry.
+
+- `null` clears a term; `auto_renew: null` resets it to false, and `currency: null` resets to BRL while a value remains. `status` cannot be null. On a pending amendment, null removes a term from its delta instead of clearing the parent's term.
+- `external_references` replaces the whole list; `[]` or null clears it. At most 20 items, each with `system` (1–64 letters, digits, `_`, `-`, `.`) and `id` (1–255 characters, no four-byte characters). IDs retain their whitespace and case. Pairs equal ignoring case are deduplicated by the API; conflicting database-equivalent references return `400`.
+- `value` is between 0 and 9999999999999.99, with at most two decimal places. `currency` is three letters. `counterparty_name` is plain text, at most 255 characters; `counterparty_taxpayer_id` is a valid CPF/CNPJ, formatted or unformatted, at most 20 characters.
+- `end_date` cannot precede `start_date`. `renewal_term_months` is an integer from 1 to 600; `notice_period_days` is an integer from 0 to 3650. `owner_id` must identify an active workspace member.
+- `metadata` is an object with at most 50 named keys of 1–40 letters, digits, `_`, `-`, `.`. Values are plain text of at most 500 characters. Numeric values under date-like keys (`*_at`, `stuck_since`) are prohibited by the API. Sending metadata replaces that object.
+- Initial status may be `draft`, `active`, `expired` (with a past end date) or `terminated` (with an end date). Existing contracts cannot return from active to draft. Close an existing contract with Terminate Contract; reopen an expired one with Renew Contract. Terminated contracts cannot be renewed. Changing an end date advances the term.
+
+For example, `{"document":"doc_contract","terms":{"value":null,"external_references":[],"auto_renew":false,"notice_period_days":0,"updated_at":"2026-10-28T12:00:00Z"}}` clears the value/references while preserving explicit false and zero.
+
+To attach an instrument, upload its PDF, then set terms on that new document:
+
+```json
+{
+  "document": "doc_amendment",
+  "terms": {
+    "parent_document_id": "doc_contract",
+    "relation_type": "amendment",
+    "value": 130000,
+    "end_date": "2028-06-30"
+  }
+}
+```
+
+`relation_type` is required on the first link: `amendment`, `renewal` or `termination`. An amendment can change value, currency, dates, renewal settings, notice period, counterparty and metadata; a renewal changes only end date/value; a termination only its effective end date. A parent may name any document in the family; the API resolves the root. The parent changes only after the instrument is certificated, in recorded signing order. An applied amendment is read-only. To unlink a pending instrument, send `{"parent_document_id":null}` as its `terms`. Existing document signing and verification methods remain the same.
+
+#### Contract response payload
+
+API envelope and complete base contract output:
+
+```json
+{
+  "status": 200,
+  "message": "",
+  "data": {
+    "resource": "document_contract",
+    "document_id": "doc_contract",
+    "status": "active",
+    "counterparty_name": "Example Ltd",
+    "counterparty_taxpayer_id": "11222333000181",
+    "value": 120000.5,
+    "currency": "BRL",
+    "start_date": "2026-11-01",
+    "end_date": "2027-10-31",
+    "auto_renew": true,
+    "renewal_term_months": 12,
+    "notice_period_days": 30,
+    "term": 1,
+    "owner_id": "user_owner",
+    "metadata": { "crm_stage": "won" },
+    "external_references": [{ "system": "hubspot", "id": "deal_123" }],
+    "created_at": "2026-10-28T12:00:00Z",
+    "updated_at": "2026-10-28T12:00:00Z"
+  }
+}
+```
+
+The piece output is the entire `data` object. A single-contract read also includes `amendments`, an array of the following objects (empty when none). Find Contracts with `expand_document: true` includes `document`, the original API document object shown in [Document payload](#document-payload), including its assignment. This nested object is not the piece's flattened document output.
+
+#### Amendment response payload
+
+Get Contract on an instrument, and Set Contract Terms when linking it, return this object as `data`:
+
+```json
+{
+  "resource": "document_contract_amendment",
+  "document_id": "doc_amendment",
+  "document_name": "Service agreement amendment.pdf",
+  "parent_document_id": "doc_contract",
+  "relation_type": "amendment",
+  "number": null,
+  "status": "pending",
+  "document_status": "pending_signature",
+  "apply_error": null,
+  "currency": "BRL",
+  "terms": { "value": 130000, "end_date": "2028-06-30" },
+  "changes": {
+    "value": { "from": 120000.5, "to": 130000 },
+    "end_date": { "from": "2027-10-31", "to": "2028-06-30" },
+    "term": { "from": 1, "to": 2 }
+  },
+  "applied_at": null,
+  "created_at": "2026-10-28T12:05:00Z",
+  "updated_at": "2026-10-28T12:05:00Z"
+}
+```
+
+Once applied, `status` becomes `applied`, `number` is the instrument's position and `applied_at` is its application time. `changes` records each changed field's `from`/`to`; while pending it is a preview. `apply_error` explains a blocked instrument. `currency` preserves the applicable currency. `terms` and `changes` can be null.
+
+#### Get Contract and Get Related Contracts payloads
+
+Both take `{"document":"doc_contract"}`. Get Contract returns that document's contract or amendment. Get Related Contracts accepts either the root or any instrument ID and returns the root contract with `amendments`. Both return HTTP 404 when there are no terms. The API distinguishes a document without terms with `code: "NoContractTerms"`; a missing/out-of-workspace document has a different 404 response. The action propagates the error, so a failed read does not masquerade as an empty contract.
+
+#### Find Contracts payload
+
+```json
+{
+  "search": "Service agreement",
+  "status": ["active", "expired"],
+  "counterparty": "Example",
+  "end_date_from": "2026-11-01",
+  "end_date_to": "2027-10-31",
+  "ending_within_days": 365,
+  "external_system": "hubspot",
+  "external_id": "deal_123",
+  "sort": "end_date",
+  "expand_document": true,
+  "limit": 25
+}
+```
+
+HTTP: `GET /accounts/{accountId}/contracts?search=Service%20agreement&status=active%2Cexpired&counterparty=Example&end_date_from=2026-11-01&end_date_to=2027-10-31&ending_within_days=365&external_system=hubspot&external_id=deal_123&sort=end_date&expand=document&page=1&per-page=50`.
+
+All filters are optional and combined. `status` accepts the four contract statuses. `ending_within_days` is an integer from 0 to 3650 (0 means today), inclusive of both endpoints, for any status; combine with active to find contracts still in force. Sort is `updated_at`, `-updated_at` (default), `end_date` or `-end_date`; missing end dates come last. Limit is an integer from 1 to 100, default 25. Pagination follows headers/short pages and deduplicates by `document_id`. API response is `{"status":200,"message":"","data":[contract]}`; output is `[contract]`, or `[]` when no match exists.
+
+#### Renew Contract payload
+
+```json
+{
+  "document": "doc_contract",
+  "renewal": {
+    "term": 1,
+    "end_date": "2028-10-31",
+    "value": 130000,
+    "updated_at": "2026-10-28T12:00:00Z"
+  }
+}
+```
+
+HTTP body is `renewal`. It requires the current `term` or an explicit new `end_date`. The date must be after the current one. If absent, empty or null, the API moves by `renewal_term_months` (12 when unset), stepping until the end date is in the future; `term` is then required. Optional `value` replaces the amount; null clears it. Response is the contract payload with the advanced term. Repeating the same term/date is refused with 400 or 409 instead of renewing twice. Preserve that payload on retry; never automatically fetch a newer term after a timeout.
+
+#### Terminate Contract payload
+
+```json
+{
+  "document": "doc_contract",
+  "reason": "Agreement ended by mutual consent",
+  "updated_at": "2026-10-28T12:00:00Z"
+}
+```
+
+HTTP body: `{"reason":"Agreement ended by mutual consent","updated_at":"2026-10-28T12:00:00Z"}`. Both fields are optional; reason is at most 500 characters. Response is the contract payload with `status: "terminated"`. The API records the reason in its event and stops lifecycle alerts. Repeated termination returns 400. The action does not delete the document.
+
+#### Contract error payloads
+
+```json
+{
+  "status": 400,
+  "message": "value must be no less than 0.",
+  "errors": [{ "field": "value", "code": "TooSmall", "message": "value must be no less than 0." }]
+}
+```
+
+```json
+{
+  "status": 409,
+  "message": "The contract changed after it was read; read it again and resend the change.",
+  "code": "ContractChanged"
+}
+```
+
+The client preserves numeric HTTP `status`, optional `code` and `errors` entries on `AssinafyApiError`; builder errors include the API message and validation details. Unknown fields and malformed typed inputs fail before any write. Workspace membership, plan, current state and concurrent changes remain authoritative API checks.
+
+### Contract events and webhook operations
+
+New Event supports every event in the published catalog, including all eight CLM events:
+
+| Event | Payload fields exposed with the `detail_` prefix |
+|---|---|
+| `document_contract_updated` | `user_name`, `end_date`, `changed` |
+| `document_contract_renewal_notice` | `end_date` |
+| `document_contract_expiring` | `end_date`, `days_before` (45 or 30) |
+| `document_contract_expired` | `end_date`, `changed` |
+| `document_contract_renewed` | `user_name` for manual renewals, `end_date`, `changed` |
+| `document_contract_terminated` | `user_name`, `reason`, `end_date`, `changed` |
+| `document_contract_amended` | instrument `document_id`, `relation_type`, `number`, `changes`, `end_date`, `changed` |
+| `document_contract_amendment_updated` | `user_name`, `parent_document_id`, `relation_type`, `terms`, `changed` |
+
+Arrays and objects in event details are JSON strings, preserving their contents: `detail_changed` might be `["value","end_date"]`, and `detail_changes` might be `{"value":{"from":100,"to":120}}`. Other scalar fields retain their API types. For `document_contract_amended`, `document_id` is the root contract while `detail_document_id` is the signed instrument. For amendment-link updates, `document_id` is the instrument and `detail_parent_document_id` is the root. Map the root into Get Contract to obtain the full current terms.
+
+The builder describes the common envelope, complete document fields and published detail fields. Test samples use the selected event types, including biometric review reasons and contract changes. Additional payload keys are also emitted as `detail_*`.
+
+Endpoint lifecycle is managed by New Event. Additional webhook management operations are available through Custom API Call, with redirects off:
+
+| Operation | Method and path | Body / response `data` |
+|---|---|---|
+| List event types | `GET /webhooks/event-types` | Array of `{id, description}` |
+| List endpoints | `GET /accounts/{accountId}/webhooks/endpoints` | Array of endpoint objects |
+| Read endpoint | `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}` | Endpoint object |
+| Rotate endpoint secret | `POST /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret/rotate` | `{secret:"whsec_…"}`; reconnect the owning flow afterward |
+| Read endpoint secret (API key) | `GET /accounts/{accountId}/webhooks/endpoints/{endpointId}/secret` | `{secret:"whsec_…"}`; unavailable to OAuth |
+| List deliveries | `GET /accounts/{accountId}/webhooks?page=1&per-page=50` | Delivery history including payload and status, retained for seven days |
+| Retry a delivery | `POST /accounts/{accountId}/webhooks/{historyId}/retry` | The dispatch result; only retry a delivery belonging to the intended endpoint |
+
+Custom API Call preserves the framework response `{status,headers,body}`; its `body` contains the API envelope. Secret responses are credentials: store them only in the connection/flow store, never in CRM fields or logs. Avoid independently deleting or changing the URL of an endpoint owned by an enabled flow.
+
 ### OAuth protocol payloads
 
 Activepieces handles this protocol; flow authors use the connection dialog. Discovery: [authorization server](https://auth.assinafy.com.br/.well-known/oauth-authorization-server) and [protected resource](https://api.assinafy.com.br/.well-known/oauth-protected-resource).
@@ -1256,7 +1519,7 @@ Signer outputs: `id`, `full_name`, `email`, `whatsapp_phone_number`, `has_accept
 
 ## Development
 
-Requirements: Node.js 24 LTS and Git.
+Requirements: Node.js 26 LTS and Git. Node.js 24 remains supported and is tested in CI.
 
 ```sh
 npm install              # also downloads the Activepieces libraries
@@ -1268,7 +1531,7 @@ npm run build            # bundles the piece into dist/
 
 The piece is built against the Activepieces piece framework at the commit in `ACTIVEPIECES_REF`. `npm install` downloads the framework, common and core libraries from that commit into `.activepieces/`, and the build bundles them into a single file. To build against a newer Activepieces, change `ACTIVEPIECES_REF`, run `npm install` and run the tests.
 
-Vitest 4 enforces 95% statements/lines, 90% branches and 100% functions. Framework preparation preserves Node.js TLS certificate verification; a real-client regression check verifies that HTTP calls leave it enabled.
+Vitest 4 enforces 95% statements/lines, 90% branches and 100% functions. Framework preparation preserves TLS certificate verification, applies timeouts through response-body reading, and removes request-body logging from failed HTTP calls.
 
 Unit tests mock the HTTP client and block any real network request. One upload test runs the real Activepieces HTTP client against a stubbed `fetch` to check the multipart request on the wire.
 
@@ -1283,7 +1546,7 @@ Unit tests mock the HTTP client and block any real network request. One upload t
 - **Document Signed** keeps its own state and keeps it when a flow is republished: the time it was turned on, the last completed check, the position of an unfinished backlog scan, and a ledger of documents it fired recently.
   - Signed documents are listed newest first, cannot be deleted, and only move down the list as others are signed or edited. A backlog scan therefore resumes after the last document it examined (by update time and ID), and the time checkpoint advances only when the scan has reached documents older than the previous check.
   - A document fires when its completion time (the newest `document_ready` activity, else the newest `signer_signed_document`) is after the trigger was turned on and no more than 24 hours before the start of the check window. A document with neither activity does not fire. The ledger remembers the documents fired in that period so later edits do not fire them again, drops entries that can no longer pass the rule, and holds at most 5,000 entries to stay within the Activepieces store limit.
-  - Each check reads at most 10 pages of 50 documents and 40 activity logs, and stops after 30 seconds; the next check continues where it stopped. An error after some documents were examined keeps that progress; an error before any fails the check.
+  - Each check reads at most 10 pages of 50 documents and 40 activity pages, and stops after 30 seconds; the next check continues where it stopped. An error after some documents were examined keeps that progress; an error before any fails the check.
   - Authorization errors (401/403) fail the check without emitting that document. Other unreadable activity logs are tried again on the next two checks. After that it fires with its update time as the completion time, so one broken document cannot stop the trigger.
   - Activepieces saves a polling trigger's progress before it starts the flow runs for the returned items. If starting them fails, those documents are not returned again. This applies to every Activepieces polling trigger; the piece gets no signal to replay them.
 
@@ -1303,9 +1566,27 @@ ASSINAFY_API_KEY=<sandbox key> npm run test:live
 | `ASSINAFY_LIVE_WEBHOOK=1` | Also turns the New Event trigger on and off: a signed webhook endpoint where the workspace supports endpoints, otherwise the single webhook address, which it restores afterwards; checks the endpoint-limit response and skips registration when all slots are occupied, preserving existing destinations |
 | `ASSINAFY_LIVE_WEBHOOK_EMAIL` | Delivery notice address for the webhook check (defaults to an `example.com` address) |
 
-The suite checks all six verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. With sending enabled it also creates assignments for all six combinations, with the tested signer in step 2 behind an unsigned email signer; WhatsApp and identity-verification invitations remain inactive. All created resources are removed, including when a check fails. The template sending check requires a ready template with one signer role and no editor fields. These API checks do not complete an OTP, biometric or A1/A3 signing session; that requires the recipient, identity capture or a compatible certificate.
+The suite checks all six verification/notification cost requests, reads signing activities and downloads the available final PDF/ZIP artifacts from an existing signed document. With sending enabled it also creates assignments for all six combinations, with the tested signer in step 2 behind an unsigned email signer; WhatsApp and identity-verification invitations remain inactive. All created resources are removed, including when a check fails. The template sending check requires a ready template with one signer role; editor fields receive fictional plain text. These API checks do not complete an OTP, biometric or A1/A3 signing session; that requires the recipient, identity capture or a compatible certificate.
 
 The sandbox limits bursts of requests with HTTP 429; the suite waits for the time the response names and sends the request again.
+
+### Production API and webhook tests
+
+Save `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` in the gitignored `.env` file with owner-only permissions. Production requires explicit opt-in:
+
+```sh
+ASSINAFY_LIVE=1 ASSINAFY_LIVE_PRODUCTION=1 ASSINAFY_LIVE_SEND=1 ASSINAFY_LIVE_WEBHOOK=1 ASSINAFY_LIVE_REQUIRE_PAID_METHODS=1 node --env-file=.env node_modules/vitest/vitest.mjs run test/live.test.ts
+```
+
+This uses temporary documents/signers, verifies all six methods, exercises the full contract lifecycle (including pending amendment links, clearing and conflicts), checks the event catalog and creates, republishes, rotates and removes its own webhook endpoint. It preserves occupied endpoints. Template generation needs a ready template with one signer role; editor fields receive fictional plain text. That test is skipped when the fixture is absent, as are final-artifact downloads without a signed document. All temporary resources are deleted, and cleanup failures fail the suite. `npm run test:production` is equivalent when credentials are already exported. The sandbox remains the default for `test:live`.
+
+To verify genuine incoming deliveries, provide an HTTPS callback that routes to a local port, then run:
+
+```sh
+ASSINAFY_WEBHOOK_LIVE=1 ASSINAFY_LIVE_WEBHOOK_URL=https://callback.example.com ASSINAFY_LIVE_WEBHOOK_PORT=18765 node --env-file=.env node_modules/vitest/vitest.mjs run test/webhook-delivery-live.test.ts
+```
+
+The callback must be approved to receive production webhook data. The suite binds to loopback, creates one temporary document/endpoint, verifies signed contract-update/renewal/termination events and tamper rejection, then removes its resources and closes the receiver. Delivery wait is bounded at 120 seconds. Stop any externally managed tunnel afterward. API and local signature tests alone do not verify public reachability or the hosted Activepieces worker's acknowledgment behavior.
 
 ### Production OAuth tests
 

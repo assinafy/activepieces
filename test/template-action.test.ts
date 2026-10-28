@@ -5,6 +5,7 @@ import {
   PRODUCTION,
   apiDocument,
   apiKeyAuth,
+  oauthAuth,
   apiSigner,
   apiTemplate,
   context,
@@ -61,6 +62,7 @@ describe('Create Document from Template form', () => {
     );
     expect(Object.keys(props)).toEqual(['field_fld_company']);
     expect(props['field_fld_company'].displayName).toBe('Company name');
+    expect(props['field_fld_company'].required).toBe(true);
   });
 
   test('labels unnamed fields and roles sensibly', async () => {
@@ -132,6 +134,143 @@ describe('Create Document from Template form', () => {
 });
 
 describe('Create Document from Template', () => {
+  test('omits an unfilled optional copy receiver role', async () => {
+    replyData([
+      {
+        ...apiTemplate,
+        pages: [],
+        roles: [
+          { id: 'role_a', assignment_type: 'Signer' },
+          { id: 'role_copy', assignment_type: 'CopyReceiver' },
+        ],
+      },
+    ]);
+    replyData([apiSigner]);
+    replyData(apiDocument);
+    await createDocumentFromTemplate.run(
+      context({
+        props: {
+          template: 'tpl_1',
+          signers: { email_role_a: 'maria@example.com' },
+        },
+      })
+    );
+    expect(sentRequests().at(-1)?.body).toEqual({
+      signers: [
+        {
+          role_id: 'role_a',
+          id: 'sig_1',
+          verification_method: 'Email',
+          notification_methods: ['Email'],
+        },
+      ],
+    });
+  });
+
+  test.each([undefined, {}, { field_fld_company: '  ' }])(
+    'requires every editor field before creating signers (%j)',
+    async (editor_fields) => {
+      replyData([apiTemplate]);
+      replyData([]);
+      replyData(apiSigner);
+      replyData(apiDocument);
+      await expect(
+        createDocumentFromTemplate.run(
+          context({
+            props: {
+              template: 'tpl_1',
+              signers: {
+                email_role_client: 'maria@example.com',
+                name_role_client: 'Maria Silva',
+              },
+              editor_fields,
+            },
+          })
+        )
+      ).rejects.toThrow('Company name is required');
+      expect(sentRequests()).toHaveLength(1);
+    }
+  );
+
+  test('rejects fields outside the editor role before changing signers', async () => {
+    replyData([apiTemplate]);
+    replyData([]);
+    replyData(apiSigner);
+    replyData(apiDocument);
+    await expect(
+      createDocumentFromTemplate.run(
+        context({
+          props: {
+            template: 'tpl_1',
+            signers: {
+              email_role_client: 'maria@example.com',
+              name_role_client: 'Maria Silva',
+            },
+            editor_fields: {
+              field_fld_company: 'Example Ltda',
+              field_fld_sign: 'Not an editor value',
+            },
+          },
+        })
+      )
+    ).rejects.toThrow('fld_sign is not an editor field');
+    expect(sentRequests()).toHaveLength(1);
+  });
+
+  test.each([
+    ['email', 'Email', 'Email'],
+    ['whatsapp', 'Whatsapp', 'Whatsapp'],
+    ['certificate_email', 'DigitalCertificate', 'Email'],
+    ['certificate_whatsapp', 'DigitalCertificate', 'Whatsapp'],
+    ['biometric_email', 'IdDocumentFaceMatchBasic', 'Email'],
+    ['biometric_whatsapp', 'IdDocumentFaceMatchBasic', 'Whatsapp'],
+  ])(
+    'sends %s from a field-free template with API key and OAuth',
+    async (verification, method, channel) => {
+      for (const auth of [apiKeyAuth, oauthAuth]) {
+        if (auth === oauthAuth) replyData([{ id: 'acc_1' }]);
+        replyData([{ ...apiTemplate, pages: [] }]);
+        replyData([
+          {
+            ...apiSigner,
+            government_id: '39053344705',
+            whatsapp_phone_number: '+5548999990000',
+          },
+        ]);
+        replyData(apiDocument);
+        await createDocumentFromTemplate.run(
+          context({
+            props: {
+              template: 'tpl_1',
+              signers: {
+                email_role_client: 'maria@example.com',
+                whatsapp_role_client: '+5548999990000',
+                verification_role_client: verification,
+              },
+            },
+            extra: { auth },
+          })
+        );
+        expect(sentRequests().at(-1)).toMatchObject({
+          headers:
+            auth === oauthAuth
+              ? { Authorization: 'Bearer test-access-token' }
+              : { 'X-Api-Key': 'test-api-key' },
+          body: {
+            signers: [
+              {
+                role_id: 'role_client',
+                id: 'sig_1',
+                verification_method: method,
+                notification_methods: [channel],
+              },
+            ],
+          },
+        });
+      }
+    }
+  );
+
   test.each([
     ['biometric_email', 'Email'],
     ['biometric_whatsapp', 'Whatsapp'],

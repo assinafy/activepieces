@@ -3,8 +3,11 @@ import { HttpMethod } from '@activepieces/pieces-common';
 import { DEDUPE_KEY_PROPERTY } from '@activepieces/pieces-framework';
 import { newEvent } from '../src/lib/triggers/new-event';
 import { assinafyFormat } from '../src/lib/common/format';
+import { assinafyConstants } from '../src/lib/common/constants';
+import { assinafySample } from '../src/lib/common/sample';
 import {
   PRODUCTION,
+  apiKeyAuth,
   context,
   memoryStore,
   oauthAuth,
@@ -111,6 +114,36 @@ describe('New Event (Instant): enabling on a single webhook address', () => {
       method: HttpMethod.GET,
       url: subscriptionUrl,
     });
+    await expect(store.get('webhook_signing_required')).resolves.toBeNull();
+  });
+
+  test('does not downgrade to unsigned deliveries after a failed legacy registration', async () => {
+    const store = memoryStore();
+    replyData(null);
+    replyError({ status: 500, body: { message: 'Subscription failed' } });
+    await expect(
+      newEvent.onEnable(
+        webhookContext({
+          props: { notification_email: 'ops@example.com' },
+          extra: { store },
+        })
+      )
+    ).rejects.toThrow('Subscription failed');
+    await expect(store.get('webhook_signing_required')).resolves.toBe(true);
+    await expect(
+      newEvent.run(
+        webhookContext({
+          extra: {
+            store,
+            payload: {
+              body: readyEvent,
+              headers: {},
+              queryParams: { assinafy_token: await store.get('webhook_token') },
+            },
+          },
+        })
+      )
+    ).resolves.toEqual([]);
   });
 
   test('keeps its token when enabled again, so deliveries already on the way still count', async () => {
@@ -287,6 +320,64 @@ describe('New Event (Instant): sample data', () => {
       newEvent.sampleData,
     ]);
   });
+
+  test.each(assinafyConstants.webhookEventOptions)(
+    'provides a sample of the selected $value event when no delivery exists',
+    async ({ value: event }) => {
+      replyData([]);
+      const result = await newEvent.test?.(
+        webhookContext({ props: { events: [event] } })
+      );
+      expect(result).toEqual([assinafySample.event(event)]);
+      expect(result?.[0]).toMatchObject({ event });
+    }
+  );
+
+  test('includes biometric and contract details in fallback samples and keeps non-document fields empty', async () => {
+    replyData([]);
+    const samples = await newEvent.test?.(
+      webhookContext({
+        props: {
+          events: [
+            'signer_identity_review_required',
+            'document_contract_amended',
+            'document_contract_amendment_updated',
+            'template_processed',
+            'signer_created',
+            'document_contract_expiring',
+          ],
+        },
+      })
+    );
+    expect(samples).toHaveLength(5);
+    expect(samples?.[0]).toMatchObject({
+      actor_type: 'Signer',
+      detail_signer_full_name: 'Maria Silva',
+      detail_reason_codes: '["NAME_MISMATCH","LIVENESS_UNCERTAIN"]',
+    });
+    expect(samples?.[1]).toMatchObject({
+      actor_type: 'Account',
+      detail_document_id: 'document_amendment',
+      detail_changes: '{"value":{"from":10000,"to":12000}}',
+      detail_changed: '["value"]',
+    });
+    expect(samples?.[2]).toMatchObject({
+      actor_type: 'User',
+      detail_parent_document_id: 'document_parent',
+      detail_relation_type: 'amendment',
+      detail_terms: '{"value":12000,"end_date":"2027-10-31"}',
+    });
+    expect(samples?.[3]).toMatchObject({
+      object_type: 'Template',
+      document_id: null,
+      document_signers: [],
+    });
+    expect(samples?.[4]).toMatchObject({
+      object_type: 'Signer',
+      document_id: null,
+      detail_signer_full_name: 'Maria Silva',
+    });
+  });
 });
 
 describe('New Event (Instant): receiving', () => {
@@ -448,6 +539,34 @@ describe('New Event (Instant): webhook endpoints', () => {
     is_active: true,
   };
 
+  test.each(assinafyConstants.webhookEventOptions)(
+    'registers $value with signing enabled for API key and OAuth connections',
+    async ({ value: event }) => {
+      for (const auth of [apiKeyAuth, oauthAuth]) {
+        sendRequest.mockReset();
+        if (auth === oauthAuth) {
+          replyData([{ id: 'acc_1' }]);
+        }
+        replyData([]);
+        replyData({ ...mine, signing_enabled: true, secret });
+        const store = memoryStore();
+        await newEvent.onEnable(
+          webhookContext({
+            props: { events: [event], notification_email: 'ops@example.com' },
+            extra: { auth, store },
+          })
+        );
+        expect(sentRequests().at(-1)).toMatchObject({
+          method: HttpMethod.POST,
+          url: endpointsUrl,
+          body: { events: [event], signing_enabled: true },
+        });
+        await expect(store.get('webhook_secret')).resolves.toBe(secret);
+        await expect(store.get('webhook_endpoint_id')).resolves.toBe(mine.id);
+      }
+    }
+  );
+
   test('creates a signed endpoint for the flow and keeps its signing secret', async () => {
     replyData([other]);
     replyData({ ...mine, id: 'ep_new' });
@@ -472,6 +591,7 @@ describe('New Event (Instant): webhook endpoints', () => {
       url: `${endpointsUrl}/ep_new/secret`,
     });
     await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    await expect(store.get('webhook_signing_required')).resolves.toBe(true);
   });
 
   test('updates the endpoint already pointing at this flow', async () => {
@@ -536,7 +656,7 @@ describe('New Event (Instant): webhook endpoints', () => {
     { signing_enabled: true, endpointId: 'ep_old' },
     { signing_enabled: true, endpointId: 'ep_mine', lost: true },
   ])(
-    'recreates an unsigned OAuth endpoint or one without its own secret (%j)',
+    'recovers an unsigned OAuth endpoint or its lost secret without deleting it (%j)',
     async ({ signing_enabled, endpointId, lost }) => {
       const store = memoryStore({
         webhook_endpoint_id: endpointId,
@@ -544,6 +664,50 @@ describe('New Event (Instant): webhook endpoints', () => {
       });
       replyData([{ id: 'acc_1' }]);
       replyData([{ ...mine, signing_enabled }]);
+      replyData({ ...mine, signing_enabled: true });
+      replyData({ secret });
+      await newEvent.onEnable(
+        webhookContext({ extra: { auth: oauthAuth, store } })
+      );
+      expect(
+        sentRequests()
+          .slice(2)
+          .map(({ method }) => method)
+      ).toEqual([HttpMethod.PUT, HttpMethod.POST]);
+      expect(sentRequests()[3].url).toBe(
+        `${endpointsUrl}/${mine.id}/secret/rotate`
+      );
+      await expect(store.get('webhook_endpoint_id')).resolves.toBe(mine.id);
+      await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    }
+  );
+
+  test('uses the secret returned when OAuth enables signing, including a changed secret on republish', async () => {
+    for (const signing_enabled of [false, true]) {
+      sendRequest.mockReset();
+      const store = memoryStore({
+        webhook_endpoint_id: mine.id,
+        webhook_secret: 'whsec_c3RhbGU=',
+      });
+      replyData([{ id: 'acc_1' }]);
+      replyData([{ ...mine, signing_enabled }]);
+      replyData({ ...mine, signing_enabled: true, secret });
+      await newEvent.onEnable(
+        webhookContext({ extra: { auth: oauthAuth, store } })
+      );
+      expect(sentRequests()).toHaveLength(3);
+      await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    }
+  });
+
+  test.each([404, 405])(
+    'recreates an OAuth endpoint only when rotation is unavailable (HTTP %s)',
+    async (status) => {
+      const store = memoryStore();
+      replyData([{ id: 'acc_1' }]);
+      replyData([{ ...mine, signing_enabled: true }]);
+      replyData(mine);
+      replyError({ status, body: { message: 'Unavailable' } });
       replyData([]);
       replyData({ ...mine, id: 'ep_new', secret });
       await newEvent.onEnable(
@@ -553,9 +717,31 @@ describe('New Event (Instant): webhook endpoints', () => {
         sentRequests()
           .slice(2)
           .map(({ method }) => method)
-      ).toEqual([HttpMethod.DELETE, HttpMethod.POST]);
+      ).toEqual([
+        HttpMethod.PUT,
+        HttpMethod.POST,
+        HttpMethod.DELETE,
+        HttpMethod.POST,
+      ]);
       await expect(store.get('webhook_endpoint_id')).resolves.toBe('ep_new');
       await expect(store.get('webhook_secret')).resolves.toBe(secret);
+    }
+  );
+
+  test.each([400, 401, 403, 429, 500])(
+    'preserves the endpoint when OAuth rotation fails with HTTP %s',
+    async (status) => {
+      replyData([{ id: 'acc_1' }]);
+      replyData([{ ...mine, signing_enabled: true }]);
+      replyData(mine);
+      replyError({ status, body: { message: 'Rotation failed' } });
+      await expect(
+        newEvent.onEnable(webhookContext({ extra: { auth: oauthAuth } }))
+      ).rejects.toThrow(`HTTP ${status}`);
+      expect(sentRequests()).toHaveLength(4);
+      expect(
+        sentRequests().some(({ method }) => method === HttpMethod.DELETE)
+      ).toBe(false);
     }
   );
 
@@ -565,15 +751,70 @@ describe('New Event (Instant): webhook endpoints', () => {
       replyData([{ id: 'acc_1' }]);
       replyData([]);
       replyData({ ...mine, secret });
+      const store = memoryStore();
       await expect(
         newEvent.onEnable(
           webhookContext({
             props: { notification_email: 'ops@example.com' },
-            extra: { auth: oauthAuth },
+            extra: { auth: oauthAuth, store },
           })
         )
       ).rejects.toThrow('did not return a webhook signing secret');
       expect(sentRequests()).toHaveLength(3);
+      await expect(store.get('webhook_signing_required')).resolves.toBe(true);
+      await expect(
+        newEvent.run(
+          webhookContext({
+            extra: {
+              store,
+              payload: {
+                body: readyEvent,
+                headers: {},
+                queryParams: {
+                  assinafy_token: await store.get('webhook_token'),
+                },
+              },
+            },
+          })
+        )
+      ).resolves.toEqual([]);
+    }
+  );
+
+  test.each(['create', 'secret'])(
+    'requires a signature after an uncertain %s response',
+    async (failure) => {
+      const store = memoryStore();
+      replyData([]);
+      if (failure === 'secret') {
+        replyData({ ...mine, signing_enabled: true });
+      }
+      sendRequest.mockRejectedValueOnce(new Error('Connection closed'));
+      await expect(
+        newEvent.onEnable(
+          webhookContext({
+            props: { notification_email: 'ops@example.com' },
+            extra: { store },
+          })
+        )
+      ).rejects.toThrow('Connection closed');
+      await expect(store.get('webhook_signing_required')).resolves.toBe(true);
+      await expect(
+        newEvent.run(
+          webhookContext({
+            extra: {
+              store,
+              payload: {
+                body: readyEvent,
+                headers: {},
+                queryParams: {
+                  assinafy_token: await store.get('webhook_token'),
+                },
+              },
+            },
+          })
+        )
+      ).resolves.toEqual([]);
     }
   );
 
@@ -581,8 +822,8 @@ describe('New Event (Instant): webhook endpoints', () => {
     replyData([{ id: 'acc_1' }]);
     replyData([other]);
     replyError({ status: 403, body: { message: 'Limit reached' } });
-    replyData([]);
-    replyData({ ...mine, secret });
+    replyData({ ...other, signing_enabled: true });
+    replyData({ secret });
     await newEvent.onEnable(
       webhookContext({
         props: { replace_existing: true },
@@ -590,12 +831,12 @@ describe('New Event (Instant): webhook endpoints', () => {
       })
     );
     expect(sentRequests()[3]).toMatchObject({
-      method: HttpMethod.DELETE,
+      method: HttpMethod.PUT,
       url: `${endpointsUrl}/${other.id}`,
     });
     expect(sentRequests()[4]).toMatchObject({
       method: HttpMethod.POST,
-      url: endpointsUrl,
+      url: `${endpointsUrl}/${other.id}/secret/rotate`,
     });
   });
 
@@ -670,6 +911,33 @@ describe('New Event (Instant): webhook endpoints', () => {
     await newEvent.onDisable(webhookContext({}));
     expect(sentRequests()).toHaveLength(1);
   });
+
+  test('tolerates a deleted endpoint on disable and preserves state on other failures', async () => {
+    for (const status of [404, 403, 500]) {
+      sendRequest.mockReset();
+      const store = memoryStore({
+        webhook_token: 'token',
+        webhook_secret: secret,
+        webhook_endpoint_id: mine.id,
+        webhook_signing_required: true,
+      });
+      replyData([mine]);
+      replyError({ status, body: { message: 'Delete failed' } });
+      const disable = newEvent.onDisable(webhookContext({ extra: { store } }));
+      if (status === 404) {
+        await expect(disable).resolves.toBeUndefined();
+        await expect(store.get('webhook_secret')).resolves.toBeNull();
+        await expect(store.get('webhook_endpoint_id')).resolves.toBeNull();
+        await expect(store.get('webhook_signing_required')).resolves.toBeNull();
+      } else {
+        await expect(disable).rejects.toThrow(`HTTP ${status}`);
+        await expect(store.get('webhook_secret')).resolves.toBe(secret);
+        await expect(store.get('webhook_endpoint_id')).resolves.toBe(mine.id);
+        await expect(store.get('webhook_signing_required')).resolves.toBe(true);
+      }
+      await expect(store.get('webhook_token')).resolves.toBe('token');
+    }
+  });
 });
 
 describe('New Event (Instant): signed deliveries', () => {
@@ -712,6 +980,86 @@ describe('New Event (Instant): signed deliveries', () => {
         },
       })
     );
+
+  test.each(assinafyConstants.webhookEventOptions)(
+    'accepts signed $value events with complete event details',
+    async ({ value: event }) => {
+      const payload = {
+        ...readyEvent,
+        event,
+        payload: {
+          parent_document_id: 'parent_1',
+          end_date: '2027-10-31',
+          changed: ['value', 'end_date'],
+          changes: { value: { from: 10, to: 20 } },
+          terms: { value: 20, end_date: '2027-10-31' },
+          reason: null,
+        },
+      };
+      const raw = JSON.stringify(payload);
+      const timestamp = now();
+      const signature = createHmac(
+        'sha256',
+        Buffer.from(secret.slice(6), 'base64')
+      )
+        .update(`delivery_1.${timestamp}.${raw}`)
+        .digest('base64');
+      replyData(signedDocument);
+      const [received] = await newEvent.run(
+        webhookContext({
+          props: { events: [event] },
+          extra: {
+            store: memoryStore({
+              webhook_token: 'token',
+              webhook_secret: secret,
+            }),
+            payload: {
+              body: payload,
+              rawBody: Buffer.from(raw),
+              queryParams: { assinafy_token: 'token' },
+              headers: {
+                'Webhook-Id': 'delivery_1',
+                'Webhook-Timestamp': timestamp,
+                'Webhook-Signature': `v1,${signature}`,
+              },
+            },
+          },
+        })
+      );
+      expect(received).toMatchObject({
+        event,
+        detail_parent_document_id: 'parent_1',
+        detail_end_date: '2027-10-31',
+        detail_changed: '["value","end_date"]',
+        detail_changes: '{"value":{"from":10,"to":20}}',
+        detail_terms: '{"value":20,"end_date":"2027-10-31"}',
+        detail_reason: null,
+        document_id: signedDocument.id,
+        [DEDUPE_KEY_PROPERTY]: 'delivery_1',
+      });
+    }
+  );
+
+  test.each([-301, -300, 0, 300, 301])(
+    'enforces the five-minute signature window at offset %s seconds',
+    async (offset) => {
+      const fixedNow = 1790000000000;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(fixedNow);
+      try {
+        const timestamp = String(fixedNow / 1000 + offset);
+        const result = await receive({
+          headers: {
+            'webhook-id': 'msg_1',
+            'webhook-timestamp': timestamp,
+            'webhook-signature': sign({ id: 'msg_1', timestamp }),
+          },
+        });
+        expect(result).toHaveLength(Math.abs(offset) <= 300 ? 1 : 0);
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
 
   test('matches the Standard Webhooks reference signature', () => {
     expect(

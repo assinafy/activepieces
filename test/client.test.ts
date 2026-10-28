@@ -340,6 +340,32 @@ describe('paging', () => {
     expect(found.map((item) => item.id)).toContain('item_60');
     expect(sentRequests()).toHaveLength(2);
   });
+
+  test('listAll deduplicates contracts by document_id across and within pages', async () => {
+    replyPage({
+      data: [{ document_id: 'doc_1' }, { document_id: 'doc_1' }],
+      pageCount: 2,
+    });
+    replyPage({
+      data: [{ document_id: 'doc_1' }, { document_id: 'doc_2' }],
+      pageCount: 2,
+    });
+    await expect(client.listAll({ request, maxItems: 100 })).resolves.toEqual([
+      { document_id: 'doc_1' },
+      { document_id: 'doc_2' },
+    ]);
+    expect(sentRequests()).toHaveLength(2);
+  });
+
+  test.each([{}, { id: '' }, { id: 42 }, { document_id: ' ' }, null])(
+    'rejects a list item without a usable ID: %j',
+    async (item) => {
+      replyPage({ data: [item] });
+      await expect(client.listAll({ request, maxItems: 100 })).rejects.toThrow(
+        'Assinafy returned a list item without an ID.'
+      );
+    }
+  );
 });
 
 describe('errors', () => {
@@ -393,6 +419,47 @@ describe('errors', () => {
     await expect(
       client.request({ method: HttpMethod.GET, path: '/x' })
     ).rejects.toThrow('Assinafy API error (HTTP 400): The code expired.');
+  });
+
+  test('preserves contract error codes and all structured field errors', async () => {
+    const errors = [
+      { field: 'value', code: 'TooSmall', message: 'Value must be positive.' },
+      { field: 'currency', code: 'Invalid', message: 'Currency is invalid.' },
+      { field: null, code: 'InvalidBody', message: 'Body must be an object.' },
+    ];
+    replyError({
+      status: 400,
+      body: { status: 400, message: errors[0].message, errors },
+    });
+    const failure = await client
+      .request({ method: HttpMethod.PUT, path: '/contract', body: {} })
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ status: 400, errors });
+    expect((failure as Error).message).toContain('currency');
+    expect((failure as Error).message).toContain('InvalidBody');
+
+    for (const [status, code] of [
+      [409, 'ContractChanged'],
+      [404, 'NoContractTerms'],
+    ] as const) {
+      replyError({ status, body: { status, message: 'Refused.', code } });
+      await expect(
+        client.request({ method: HttpMethod.GET, path: '/contract' })
+      ).rejects.toMatchObject({ status, code });
+    }
+  });
+
+  test('ignores malformed structured field errors', async () => {
+    replyError({
+      status: 400,
+      body: {
+        code: 42,
+        errors: [null, {}, { field: [], code: 'Invalid', message: 'Bad' }],
+      },
+    });
+    await expect(
+      client.request({ method: HttpMethod.GET, path: '/contract' })
+    ).rejects.toMatchObject({ status: 400, code: undefined, errors: [] });
   });
 
   test('keeps short plain-text bodies and tolerates empty ones', async () => {
@@ -473,6 +540,75 @@ describe('timeouts', () => {
       path: '/x',
     });
     expect(sentRequests().map((sent) => sent.timeout)).toEqual([15000, 120000]);
+  });
+});
+
+describe('bundled HTTP transport', () => {
+  const realTransport = async () => {
+    const { httpClient } = await vi.importActual<
+      typeof import('@activepieces/pieces-common')
+    >('@activepieces/pieces-common');
+    sendRequest.mockImplementation((request) =>
+      httpClient.sendRequest(request)
+    );
+  };
+
+  test.each(['json', 'arraybuffer'] as const)(
+    'keeps the timeout active while reading a %s response body',
+    async (responseType) => {
+      await realTransport();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async (_url: string, init: RequestInit) =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  init.signal?.addEventListener(
+                    'abort',
+                    () => controller.error(init.signal?.reason),
+                    { once: true }
+                  );
+                },
+              }),
+              { status: 200 }
+            )
+        )
+      );
+      const client = createClient({
+        ...apiKeyCredentials({ api_key: 'dummy-key' }),
+        timeoutMs: 20,
+      });
+      await expect(
+        client.request({ method: HttpMethod.GET, path: '/x', responseType })
+      ).rejects.toThrow(/timeout/i);
+    }
+  );
+
+  test('does not log request bodies when an API request fails', async () => {
+    await realTransport();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: 'Invalid input.' }), {
+            status: 400,
+          })
+      )
+    );
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(
+        assinafyClient(apiKeyAuth as never).request({
+          method: HttpMethod.POST,
+          path: '/x',
+          body: { private_document: 'private-content-must-not-be-logged' },
+        })
+      ).rejects.toThrow('Assinafy API error (HTTP 400): Invalid input.');
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 

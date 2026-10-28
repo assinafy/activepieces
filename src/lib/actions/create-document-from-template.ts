@@ -43,6 +43,15 @@ function isCopyReceiverRole(role: TemplateRole): boolean {
   return role.assignment_type?.toLowerCase() === 'copyreceiver';
 }
 
+function templateEditorFields(template: ApiTemplate | undefined) {
+  const editorRoleIds = new Set(
+    (template?.roles ?? []).filter(isEditorRole).map((role) => role.id)
+  );
+  return (template?.pages ?? [])
+    .flatMap((page) => page.fields ?? [])
+    .filter((field) => editorRoleIds.has(field.role_id));
+}
+
 async function loadTemplate({
   auth,
   template,
@@ -134,7 +143,7 @@ export const createDocumentFromTemplate = createAction({
   audience: 'both',
   aiMetadata: {
     description:
-      'Generate a new Assinafy document from a ready template and send it for signature in one step, filling each template role with a signer given by email or WhatsApp (created if missing) and optionally pre-filling editor fields. Use Upload Document plus Request Signatures for a PDF that is not a template. Each call creates and sends a new document, so do not retry blindly.',
+      'Generate a new Assinafy document from a ready template and send it for signature in one step, filling signer roles with contacts given by email or WhatsApp (created if missing) and every editor field. Copy receiver roles are optional. Use Upload Document plus Request Signatures for a PDF that is not a template. Each call creates and sends a new document, so do not retry blindly.',
     idempotent: false,
   },
   outputSchema: assinafyOutputSchemas.document,
@@ -146,7 +155,7 @@ export const createDocumentFromTemplate = createAction({
       auth: assinafyAuth,
       displayName: 'Signers',
       description:
-        'Who fills each role of the template. Existing signers are matched by email; new ones need a full name.',
+        'Who fills each role of the template. Existing signers are matched by email; new ones need a full name. Leave copy receiver roles empty when no copy is needed.',
       required: true,
       refreshers: ['template'],
       props: async ({ auth, template }): Promise<InputPropertyMap> => {
@@ -161,23 +170,17 @@ export const createDocumentFromTemplate = createAction({
       auth: assinafyAuth,
       displayName: 'Template Fields',
       description:
-        'Values written into the document before it is sent. Only shown for templates with editor fields.',
+        'Fill in every editor field before sending. These values are written into the document and are shown only for templates with editor fields.',
       required: false,
       refreshers: ['template'],
       props: async ({ auth, template }): Promise<InputPropertyMap> => {
         const found = await loadTemplate({ auth, template });
-        const editorRoleIds = new Set(
-          (found?.roles ?? []).filter(isEditorRole).map((role) => role.id)
-        );
-        const fields = (found?.pages ?? [])
-          .flatMap((page) => page.fields ?? [])
-          .filter((field) => editorRoleIds.has(field.role_id));
         return Object.fromEntries(
-          fields.map((field) => [
+          templateEditorFields(found).map((field) => [
             `field_${field.field_id}`,
             Property.ShortText({
               displayName: field.label || 'Field',
-              required: false,
+              required: true,
             }),
           ])
         );
@@ -230,15 +233,22 @@ export const createDocumentFromTemplate = createAction({
         'This template is not ready. Wait for processing to finish in Assinafy.'
       );
     }
-    const roles = (template.roles ?? []).filter((role) => !isEditorRole(role));
+    const roleValues = propsValue.signers ?? {};
+    const read = (key: string) =>
+      assinafyValues.readText({ record: roleValues, key });
+    const roles = (template.roles ?? []).filter(
+      (role) =>
+        !isEditorRole(role) &&
+        (!isCopyReceiverRole(role) ||
+          ['email', 'whatsapp', 'name', 'cpf'].some((key) =>
+            read(`${key}_${role.id}`)
+          ))
+    );
     if (roles.length === 0) {
       throw new Error(
         'This template has no signer roles. Add one in Assinafy before sending documents from it.'
       );
     }
-    const roleValues = propsValue.signers ?? {};
-    const read = (key: string) =>
-      assinafyValues.readText({ record: roleValues, key });
     const requests = roles.map((role) => {
       const label = `Role "${role.name ?? role.id}"`;
       return {
@@ -283,6 +293,23 @@ export const createDocumentFromTemplate = createAction({
       value: propsValue.expires_at,
       label: 'Deadline',
     });
+    const requiredFields = templateEditorFields(template);
+    for (const field of editorFields) {
+      if (
+        !requiredFields.some((required) => required.field_id === field.field_id)
+      ) {
+        throw new Error(
+          `${field.field_id} is not an editor field of this template. Refresh the template fields and map them again.`
+        );
+      }
+    }
+    for (const field of requiredFields) {
+      if (!editorFields.some((given) => given.field_id === field.field_id)) {
+        throw new Error(
+          `${field.label || field.field_id} is required. Fill in every template editor field before sending.`
+        );
+      }
+    }
 
     const resolved = await assinafySigners.resolveAll({ client, requests });
     const document = await client.request<ApiDocument>({

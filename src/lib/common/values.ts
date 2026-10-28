@@ -96,6 +96,14 @@ function textList(values: unknown[] | undefined): string[] {
     .filter(Boolean);
 }
 
+function isCalendarDate(value: string): boolean {
+  return (
+    /^[1-9]\d{3}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) &&
+    new Date(value).toISOString().slice(0, 10) === value
+  );
+}
+
 function toIsoDate({
   value,
   label,
@@ -106,8 +114,15 @@ function toIsoDate({
   if (!value) {
     return undefined;
   }
-  const time = Date.parse(value);
-  if (Number.isNaN(time)) {
+  const date = value.trim();
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? `${date}T23:59:00Z`
+    : /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(date)
+      ? `${date}Z`
+      : date;
+  const time = Date.parse(normalized);
+  const calendarDate = /^\d{4}-\d{2}-\d{2}/.exec(date)?.[0];
+  if (Number.isNaN(time) || (calendarDate && !isCalendarDate(calendarDate))) {
     throw new Error(
       `${label} must be a valid date and time, e.g. 2026-12-31T18:00:00Z.`
     );
@@ -193,6 +208,7 @@ export const assinafyValues = {
   encodeId,
   digits,
   isGovernmentId,
+  isCalendarDate,
   isRecord,
   readStep,
   readText,

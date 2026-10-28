@@ -16,6 +16,12 @@ import { resendSignatureRequest } from './lib/actions/resend-signature-request';
 import { updateSigner } from './lib/actions/update-signer';
 import { updateSigningDeadline } from './lib/actions/update-signing-deadline';
 import { uploadDocument } from './lib/actions/upload-document';
+import { findContracts } from './lib/actions/find-contracts';
+import { getContract } from './lib/actions/get-contract';
+import { getRelatedContracts } from './lib/actions/get-related-contracts';
+import { setContractTerms } from './lib/actions/set-contract-terms';
+import { renewContract } from './lib/actions/renew-contract';
+import { terminateContract } from './lib/actions/terminate-contract';
 import { documentSigned } from './lib/triggers/document-signed';
 import { newEvent } from './lib/triggers/new-event';
 
@@ -42,6 +48,12 @@ export const assinafy = createPiece({
     findSigners,
     createSigner,
     updateSigner,
+    findContracts,
+    getContract,
+    getRelatedContracts,
+    setContractTerms,
+    renewContract,
+    terminateContract,
     createCustomApiCallAction({
       auth: assinafyAuth,
       baseUrl: (auth) =>

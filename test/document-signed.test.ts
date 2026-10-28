@@ -1,6 +1,7 @@
 import { DEDUPE_KEY_PROPERTY } from '@activepieces/pieces-framework';
 import { documentSigned } from '../src/lib/triggers/document-signed';
 import { assinafyFormat } from '../src/lib/common/format';
+import { assinafySample } from '../src/lib/common/sample';
 import { HttpError } from '@activepieces/pieces-common';
 import {
   PRODUCTION,
@@ -505,6 +506,128 @@ describe('Document Signed: polling', () => {
 });
 
 describe('Document Signed: backlog', () => {
+  const activityPage = (page: number) =>
+    Array.from({ length: 50 }, (_, index) => ({
+      id: page * 50 + index,
+      event: 'document_contract_updated',
+      created_at: iso(T0 + 4 * MINUTE),
+    }));
+
+  function pagedActivities(
+    page: (page: number) => unknown,
+    afterRead?: () => void
+  ) {
+    sendRequest.mockImplementation(
+      async (request: {
+        url: string;
+        queryParams?: Record<string, string>;
+      }) => {
+        const activity = request.url.endsWith('/activities');
+        const data = activity
+          ? page(Number(request.queryParams?.['page']))
+          : [{ ...signedDocument, updated_at: iso(T0 + 4 * MINUTE) }];
+        if (activity) {
+          afterRead?.();
+        }
+        return { status: 200, headers: {}, body: { data } };
+      }
+    );
+  }
+
+  test('finds completion after more than one page of later contract activities', async () => {
+    pagedActivities((page) =>
+      page === 1
+        ? activityPage(page)
+        : [{ event: 'document_ready', created_at: iso(T0 + MINUTE) }]
+    );
+    await expect(
+      poll({ store: enabledAt(T0), now: T0 + 5 * MINUTE })
+    ).resolves.toEqual([signedDocument.id]);
+    expect(
+      sentRequests()
+        .slice(1)
+        .map((sent) => sent.queryParams?.['page'])
+    ).toEqual(['1', '2']);
+  });
+
+  test('continues activity pagination on the next run after exhausting its request budget', async () => {
+    pagedActivities((page) =>
+      page <= 40
+        ? activityPage(page)
+        : [{ event: 'document_ready', created_at: iso(T0 + MINUTE) }]
+    );
+    const store = enabledAt(T0);
+    await expect(poll({ store, now: T0 + 5 * MINUTE })).resolves.toEqual([]);
+    expect(
+      sentRequests().filter((sent) => sent.url.endsWith('/activities'))
+    ).toHaveLength(40);
+    expect(savedState(store)).toMatchObject({
+      checkedUntil: T0,
+      activity: { id: signedDocument.id, page: 41 },
+    });
+    await expect(poll({ store, now: T0 + 10 * MINUTE })).resolves.toEqual([
+      signedDocument.id,
+    ]);
+    expect(sentRequests().at(-1)?.queryParams?.['page']).toBe('41');
+    expect(savedState(store)).toMatchObject({
+      activity: undefined,
+      drain: undefined,
+      checkedUntil: T0 + 5 * MINUTE,
+    });
+  });
+
+  test('retains activity progress when its time budget expires or the next page fails', async () => {
+    pagedActivities(activityPage, () => vi.setSystemTime(Date.now() + 16_000));
+    const store = enabledAt(T0);
+    await expect(poll({ store, now: T0 + 5 * MINUTE })).resolves.toEqual([]);
+    expect(savedState(store)).toMatchObject({ activity: { page: 3 } });
+
+    pagedActivities(() => {
+      throw new HttpError(undefined, {
+        status: 500,
+        responseBody: { message: 'Server error' },
+      });
+    });
+    await expect(poll({ store, now: T0 + 10 * MINUTE })).rejects.toThrow(
+      'HTTP 500'
+    );
+    expect(savedState(store)).toMatchObject({ activity: { page: 3 } });
+
+    pagedActivities(() => [
+      { event: 'document_ready', created_at: iso(T0 + MINUTE) },
+    ]);
+    await expect(poll({ store, now: T0 + 15 * MINUTE })).resolves.toEqual([
+      signedDocument.id,
+    ]);
+    expect(sentRequests().at(-1)?.queryParams?.['page']).toBe('3');
+  });
+
+  test('retains the newest signer completion until the end of the activity log', async () => {
+    const page = activityPage(1);
+    page[0] = {
+      ...page[0],
+      event: 'signer_signed_document',
+      created_at: iso(T0 + MINUTE),
+    };
+    pagedActivities((number) => (number === 1 ? page : []));
+    await expect(
+      poll({ store: enabledAt(T0), now: T0 + 5 * MINUTE })
+    ).resolves.toEqual([signedDocument.id]);
+  });
+
+  test('ends an activity scan when an older server repeats the last page', async () => {
+    pagedActivities(() => activityPage(1));
+    const store = enabledAt(T0);
+    await expect(poll({ store, now: T0 + 5 * MINUTE })).resolves.toEqual([]);
+    expect(
+      sentRequests().filter((sent) => sent.url.endsWith('/activities'))
+    ).toHaveLength(2);
+    expect(savedState(store)).toMatchObject({
+      drain: undefined,
+      activity: undefined,
+    });
+  });
+
   test('drains more than one check can handle, emitting each document exactly once', async () => {
     fakeAssinafy({ documents: signedAfterEnable({ count: 501 }) });
     const store = enabledAt(T0);
@@ -673,6 +796,13 @@ describe('Document Signed: backlog', () => {
 });
 
 describe('Document Signed: sample data', () => {
+  test('includes every output field in its shared static sample', () => {
+    const output = assinafyFormat.document(signedDocument);
+    expect(Object.keys(assinafySample.document)).toEqual(Object.keys(output));
+    expect(Object.keys(assinafySample.document.signers[0]).sort()).toEqual(
+      Object.keys(output.signers[0]).sort()
+    );
+  });
   test('returns recent signed documents without touching the store', async () => {
     replyData(
       Array.from({ length: 7 }, (_, index) => ({

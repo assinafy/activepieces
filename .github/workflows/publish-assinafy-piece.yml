@@ -15,7 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check:
+    if: github.repository == 'assinafy/activepieces'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage
+
   publish:
+    needs: check
     if: github.repository == 'assinafy/activepieces'
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +43,7 @@ jobs:
       - name: Setup nodejs
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
@@ -40,12 +58,6 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match the piece version $VERSION."
             exit 1
           fi
-
-      - name: Lint, typecheck and test the piece
-        run: |
-          npm run lint
-          npm run typecheck
-          npm run test:coverage
 
       - name: Build the piece
         run: npm run build

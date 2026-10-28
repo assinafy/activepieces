@@ -1,6 +1,6 @@
 {
   "name": "@assinafy/piece-assinafy",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Activepieces piece for Assinafy electronic signatures.",
   "license": "MIT",
@@ -30,11 +30,12 @@
     "licenses": "node scripts/bundled-licenses.mjs",
     "test:oauth": "ASSINAFY_OAUTH_LIVE=1 vitest run test/oauth-live.test.ts",
     "lint": "prettier --check src test scripts vitest.config.mts",
-    "format": "prettier --write src test scripts vitest.config.mts"
+    "format": "prettier --write src test scripts vitest.config.mts",
+    "test:production": "ASSINAFY_LIVE=1 ASSINAFY_LIVE_PRODUCTION=1 vitest run test/live.test.ts"
   },
   "devDependencies": {
     "@types/node": "24.11.0",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "4.1.12",
     "deepmerge-ts": "8.0.2",
     "esbuild": "0.28.1",
     "form-data": "4.0.6",
@@ -42,8 +43,8 @@
     "nanoid": "3.3.18",
     "prettier": "3.9.9",
     "typescript": "5.5.4",
-    "vitest": "4.1.11",
-    "zod": "4.3.6"
+    "vitest": "4.1.12",
+    "zod": "4.6.7"
   },
   "engines": {
     "node": ">=24"

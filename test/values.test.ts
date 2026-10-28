@@ -99,6 +99,27 @@ describe('values', () => {
     );
   });
 
+  test.each(['2030-02-30', '2030-02-30T12:00:00', '2030-02-30T12:00:00-03:00'])(
+    'rejects impossible calendar deadlines instead of rolling them forward (%s)',
+    (value) => {
+      expect(() => toIsoDate({ value, label: 'Deadline' })).toThrow(
+        'valid date'
+      );
+    }
+  );
+
+  test('deadlines use the API end-of-day and UTC defaults', () => {
+    expect(toIsoDate({ value: '2026-12-31', label: 'Deadline' })).toBe(
+      '2026-12-31T23:59:00.000Z'
+    );
+    expect(
+      toIsoDate({ value: '2026-12-31T18:30:15.250', label: 'Deadline' })
+    ).toBe('2026-12-31T18:30:15.250Z');
+    expect(toIsoDate({ value: '2026-12-31T18:30', label: 'Deadline' })).toBe(
+      '2026-12-31T18:30:00.000Z'
+    );
+  });
+
   test('digits strips formatting', () => {
     expect(digits('+55 (48) 99999-0000')).toBe('5548999990000');
     expect(digits(null)).toBe('');

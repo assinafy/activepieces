@@ -5,6 +5,7 @@ import {
   tryCatch,
 } from '@activepieces/pieces-framework';
 import { HttpMethod } from '@activepieces/pieces-common';
+import { createHash } from 'node:crypto';
 import { assinafyAuth } from '../auth';
 import {
   AssinafyApiError,
@@ -26,28 +27,59 @@ function updatedAt(document: ApiDocument): number {
 async function completedAt({
   client,
   document,
+  activity,
+  canRead,
 }: {
   client: AssinafyClient;
   document: ApiDocument;
-}): Promise<number | undefined> {
-  const response = await client.find<unknown>({
-    method: HttpMethod.GET,
-    path: `/documents/${encodeURIComponent(document.id)}/activities`,
-    queryParams: { 'per-page': assinafyConstants.pageSize },
-  });
-  const activities = Array.isArray(response)
-    ? response.filter(assinafyValues.isRecord)
-    : [];
-  const latest = (event: string) =>
-    Math.max(
-      0,
-      ...activities
-        .filter((activity) => activity['event'] === event)
-        .map((activity) => Date.parse(String(activity['created_at'])) || 0)
+  activity: ActivityScan;
+  canRead: () => boolean;
+}): Promise<{ at: number | undefined } | undefined> {
+  while (canRead()) {
+    const response = await client.find<unknown>({
+      method: HttpMethod.GET,
+      path: `/documents/${encodeURIComponent(document.id)}/activities`,
+      queryParams: {
+        page: activity.page,
+        'per-page': assinafyConstants.pageSize,
+      },
+    });
+    const activities = Array.isArray(response)
+      ? response.filter(assinafyValues.isRecord)
+      : [];
+    const latest = (event: string) =>
+      Math.max(
+        0,
+        ...activities
+          .filter((entry) => entry['event'] === event)
+          .map(
+            (entry) =>
+              Date.parse(
+                assinafyValues.toIsoTimestamp(entry['created_at']) ?? ''
+              ) || 0
+          )
+      );
+    const ready = latest('document_ready');
+    if (ready) {
+      return { at: ready };
+    }
+    activity.signedAt = Math.max(
+      activity.signedAt,
+      latest('signer_signed_document')
     );
-  return (
-    latest('document_ready') || latest('signer_signed_document') || undefined
-  );
+    const pageKey = createHash('sha256')
+      .update(JSON.stringify(activities))
+      .digest('hex');
+    if (
+      activities.length < assinafyConstants.pageSize ||
+      pageKey === activity.previousPage
+    ) {
+      return { at: activity.signedAt || undefined };
+    }
+    activity.previousPage = pageKey;
+    activity.page++;
+  }
+  return undefined;
 }
 
 function initialState(now: number): SignedState {
@@ -88,6 +120,7 @@ async function poll({
   let examined = 0;
   let previousPage: string | undefined;
   let stuck = state.stuck;
+  let activity = state.activity ? { ...state.activity } : undefined;
 
   const { error } = await tryCatch(async () => {
     const path = await client.accountPath('/documents');
@@ -123,8 +156,27 @@ async function poll({
           if (checks === CHECKS_PER_RUN || Date.now() - now >= TIME_BUDGET_MS) {
             break scan;
           }
-          checks++;
-          const check = await tryCatch(() => completedAt({ client, document }));
+          if (activity?.id !== document.id) {
+            activity = { id: document.id, page: 1, signedAt: 0 };
+          }
+          const scanActivity = activity;
+          const check = await tryCatch(() =>
+            completedAt({
+              client,
+              document,
+              activity: scanActivity,
+              canRead: () => {
+                if (
+                  checks === CHECKS_PER_RUN ||
+                  Date.now() - now >= TIME_BUDGET_MS
+                ) {
+                  return false;
+                }
+                checks++;
+                return true;
+              },
+            })
+          );
           if (check.error) {
             if (
               check.error instanceof AssinafyApiError &&
@@ -141,7 +193,11 @@ async function poll({
           if (stuck?.id === document.id) {
             stuck = undefined;
           }
-          const completed = check.error ? updated : check.data;
+          if (!check.error && !check.data) {
+            break scan;
+          }
+          activity = undefined;
+          const completed = check.error ? updated : check.data?.at;
           if (completed !== undefined && completed >= threshold) {
             emitted.push(document);
             ledger.set(document.id, completed);
@@ -168,7 +224,7 @@ async function poll({
     }
   });
   if (error && examined === 0) {
-    return { emitted, state: { ...state, stuck }, error };
+    return { emitted, state: { ...state, stuck, activity }, error };
   }
 
   return {
@@ -177,6 +233,7 @@ async function poll({
     state: {
       since: state.since,
       stuck,
+      activity: finished ? undefined : activity,
       checkedUntil: finished ? drain.startedAt : state.checkedUntil,
       drain: finished
         ? undefined
@@ -265,6 +322,13 @@ const COMPLETION_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 const LEDGER_LIMIT = 5000;
 const MAX_CHECK_ATTEMPTS = 3;
 
+type ActivityScan = {
+  id: string;
+  page: number;
+  signedAt: number;
+  previousPage?: string;
+};
+
 type SignedState = {
   since: number;
   checkedUntil: number;
@@ -278,4 +342,5 @@ type SignedState = {
     | undefined;
   ledger: [string, number][];
   stuck?: { id: string; attempts: number };
+  activity?: ActivityScan;
 };

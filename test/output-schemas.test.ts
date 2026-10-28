@@ -34,7 +34,7 @@ describe('output schemas', () => {
         .filter((step) => !step.outputSchema)
         .map((step) => step.name)
         .sort()
-    ).toEqual(['custom_api_call', 'delete_document', 'new_event']);
+    ).toEqual(['custom_api_call', 'delete_document']);
   });
 
   test('list every document field, including each signer', () => {

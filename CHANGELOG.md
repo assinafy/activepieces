@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+- Add Find Contracts, Get Contract, Get Related Contracts, Set Contract Terms, Renew Contract and Terminate Contract, including amendments, external references, field clearing and concurrent-change checks.
+- Add all contract lifecycle webhook events, selected-event samples, output fields and the document has_contract flag.
+- Recover OAuth webhook secrets through endpoint updates and rotation; reject unsigned deliveries after incomplete signed-endpoint setup.
+- Resume paginated signing-activity scans within polling budgets.
+- Validate required template editor fields before signer changes, allow empty copy receiver roles and normalize unzoned deadlines to UTC while rejecting impossible calendar dates.
+- Preserve structured API errors, enforce response-body timeouts and keep private request bodies out of transport logs.
+- Support Node.js 26 LTS while retaining Node.js 24 compatibility, and update Zod and test dependencies.
+
 ## 0.2.2
 
 - Digital certificate signers are limited to virtual assignments. Create Document from Template and Custom API Call reject collect certificate requests before signer changes or billable API calls with the stable code `DIGITAL_CERTIFICATE_REQUIRES_VIRTUAL`.

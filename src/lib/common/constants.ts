@@ -87,6 +87,14 @@ const signerVerificationMethods: Record<
 
 const webhookEventLabels: Record<string, string> = {
   document_ready: 'Document signed by all signers',
+  document_contract_updated: 'Contract terms updated',
+  document_contract_renewal_notice: 'Contract renewal notice period started',
+  document_contract_expiring: 'Contract expiring soon',
+  document_contract_expired: 'Contract expired',
+  document_contract_renewed: 'Contract renewed',
+  document_contract_terminated: 'Contract terminated',
+  document_contract_amended: 'Contract amendment applied',
+  document_contract_amendment_updated: 'Contract amendment link updated',
   signer_signed_document: 'Signer signed the document',
   signer_rejected_document: 'Signer declined the document',
   user_rejected_document: 'Document cancelled by a workspace user',
