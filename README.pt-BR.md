@@ -1622,7 +1622,7 @@ O Activepieces não traduz a janela de conexão de uma peça com mais de um tipo
 1. Aumente a `version` no `package.json` (patch para novas ações, entradas opcionais e correções; major para remoções, novas entradas obrigatórias ou mudança de comportamento) e registre a versão no `CHANGELOG.md`.
 2. Execute `npm run licenses`. Ele reescreve o `LICENSE` com a licença de cada pacote embutido no arquivo publicado.
 3. Confira o pacote com `npm run build && npm publish ./dist --dry-run`.
-4. Faça o commit, envie para a `main` e envie uma tag `piece-assinafy-vX.Y.Z` igual à versão. O workflow **Publish Assinafy piece** verifica os tipos, roda os testes, gera o pacote e o publica no npm por trusted publishing, junto com os READMEs, o `LICENSE` e o `CHANGELOG.md`.
+4. Faça o commit, envie para a `main` e envie uma tag `piece-assinafy-vX.Y.Z` igual à versão. O workflow **Publish Assinafy piece** verifica os tipos, roda os testes, gera o pacote e o publica no npm por trusted publishing, junto com os READMEs, o `LICENSE` e o `CHANGELOG.md`. Após a publicação, ele cria uma versão no GitHub usando a entrada correspondente do changelog.
 
 Nunca renomeie uma ação, gatilho ou entrada depois de publicada: os fluxos os referenciam pelo nome.
 

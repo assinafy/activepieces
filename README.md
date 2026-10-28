@@ -1619,7 +1619,7 @@ Activepieces does not translate the connection dialog of a piece with more than 
 1. Bump `version` in `package.json` (patch for new actions, optional inputs and fixes; major for removals, new required inputs or changed behavior) and add the release to `CHANGELOG.md`.
 2. Run `npm run licenses`. It rewrites `LICENSE` with the license of every package bundled into the published file.
 3. Check the package with `npm run build && npm publish ./dist --dry-run`.
-4. Commit, push to `main`, and push a `piece-assinafy-vX.Y.Z` tag that matches the version. The **Publish Assinafy piece** workflow typechecks, tests and builds the piece, then publishes it to npm through trusted publishing, together with the READMEs, `LICENSE` and `CHANGELOG.md`.
+4. Commit, push to `main`, and push a `piece-assinafy-vX.Y.Z` tag that matches the version. The **Publish Assinafy piece** workflow typechecks, tests and builds the piece, then publishes it to npm through trusted publishing, together with the READMEs, `LICENSE` and `CHANGELOG.md`. After publishing, it creates a GitHub Release using that version's changelog entry.
 
 Never rename an action, trigger or input after release: flows reference them by name.
 
