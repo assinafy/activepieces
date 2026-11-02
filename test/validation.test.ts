@@ -7,7 +7,6 @@ import { findDocuments } from '../src/lib/actions/find-documents';
 import { findSigners } from '../src/lib/actions/find-signers';
 import { deleteDocument } from '../src/lib/actions/delete-document';
 import { downloadDocument } from '../src/lib/actions/download-document';
-import { updateSigningDeadline } from '../src/lib/actions/update-signing-deadline';
 import { createDocumentFromTemplate } from '../src/lib/actions/create-document-from-template';
 import { newEvent } from '../src/lib/triggers/new-event';
 import { apiTemplate, context, replyData, sendRequest } from './helpers';
@@ -38,11 +37,6 @@ test('rejects invalid mapped inputs before network mutations', async () => {
   await expect(
     updateSigner.run(context({ props: { signer: 'sig_1', whatsapp: '123' } }))
   ).rejects.toThrow('valid WhatsApp');
-  await expect(
-    updateSigningDeadline.run(
-      context({ props: { document: 'doc_1', expires_at: '' } })
-    )
-  ).rejects.toThrow('New Deadline is required');
   for (const file_type of ['toString', '__proto__', 'constructor']) {
     await expect(
       downloadDocument.run(context({ props: { document: 'doc_1', file_type } }))

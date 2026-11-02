@@ -13,6 +13,9 @@ const SAMPLE_DOCUMENT = {
   tags: 'Contracts',
   available_files: 'original, certificated, certificate-page, bundle',
   signing_url: 'https://api.assinafy.com.br/v1/sign/615601fab04c0a3147bb1246',
+  verification_code: 'a3f1c9e07b2d4e8f9a6c5b1d0e7f3a2c9b8d4e6f',
+  verification_url:
+    'https://www.assinafy.com.br/verificador/a3f1c9e07b2d4e8f9a6c5b1d0e7f3a2c9b8d4e6f',
   decline_reason: null,
   declined_by_name: null,
   declined_by_email: null,

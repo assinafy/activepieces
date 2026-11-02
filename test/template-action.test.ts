@@ -423,6 +423,43 @@ describe('Create Document from Template', () => {
     expect(sentRequests()).toHaveLength(1);
   });
 
+  test('allows a certificate signer when only editor fields are placed', async () => {
+    replyData([
+      {
+        ...apiTemplate,
+        pages: [
+          {
+            fields: [
+              {
+                field_id: 'fld_company',
+                role_id: 'role_editor',
+                label: 'Company name',
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    replyData([{ ...apiSigner, government_id: '39053344705' }]);
+    replyData(apiDocument);
+    await createDocumentFromTemplate.run(
+      context({
+        props: {
+          template: 'tpl_1',
+          signers: {
+            email_role_client: 'maria@example.com',
+            verification_role_client: 'certificate_email',
+          },
+          editor_fields: { field_fld_company: 'Example Ltda' },
+        },
+      })
+    );
+    expect(sentRequests().at(-1)?.body).toMatchObject({
+      signers: [{ verification_method: 'DigitalCertificate' }],
+      editor_fields: [{ field_id: 'fld_company', value: 'Example Ltda' }],
+    });
+  });
+
   test('defaults each role to email, or WhatsApp when only a number is given', async () => {
     replyData([twoRoleTemplate]);
     replyData([apiSigner]);

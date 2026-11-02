@@ -170,6 +170,8 @@ export const apiDocument = {
   },
   is_closed: false,
   signing_url: 'https://api.assinafy.com.br/v1/sign/doc_1',
+  verification_code: null,
+  verification_url: null,
   decline_reason: null,
   declined_by: null,
   tags: [{ id: 'tag_1', name: 'Contracts' }],
@@ -193,6 +195,8 @@ export const signedDocument = {
   name: 'Signed contract.pdf',
   status: 'certificated',
   is_closed: true,
+  verification_code: 'verify_doc_2',
+  verification_url: 'https://www.assinafy.com.br/verificador/verify_doc_2',
   artifacts: {
     original:
       'https://api.assinafy.com.br/v1/documents/doc_2/download/original',

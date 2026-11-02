@@ -12,11 +12,11 @@ export const updateSigningDeadline = createAction({
   name: 'update_signing_deadline',
   classification: 'WRITE',
   displayName: 'Update Signing Deadline',
-  description: 'Sets a new deadline for a signature request.',
+  description: 'Sets or removes the deadline for a signature request.',
   audience: 'both',
   aiMetadata: {
     description:
-      'Set a new expiration date on the signature request of an Assinafy document, for example to extend it before it expires. The new deadline must be at least one hour in the future. Setting the same deadline again is safe.',
+      'Set a new expiration date on the signature request of an Assinafy document, or remove its deadline. A new deadline must be at least one hour in the future. Repeating the same change is safe.',
     idempotent: true,
   },
   outputSchema: assinafyOutputSchemas.signatureRequest,
@@ -27,8 +27,8 @@ export const updateSigningDeadline = createAction({
     expires_at: Property.DateTime({
       displayName: 'New Deadline',
       description:
-        'At least one hour from now, e.g. 2026-12-31T18:00:00-03:00.',
-      required: true,
+        'At least one hour from now, e.g. 2026-12-31T18:00:00-03:00. Leave empty to remove the deadline.',
+      required: false,
     }),
   },
   async run({ auth, propsValue }) {
@@ -36,9 +36,6 @@ export const updateSigningDeadline = createAction({
       value: propsValue.expires_at,
       label: 'New Deadline',
     });
-    if (!expiresAt) {
-      throw new Error('New Deadline is required.');
-    }
     const client = assinafyApi.forAuth(auth);
     const documentPath = `/documents/${assinafyValues.encodeId(propsValue.document, 'Document')}`;
     const document = await client.request<ApiDocument>({
@@ -56,7 +53,7 @@ export const updateSigningDeadline = createAction({
       path: `${documentPath}/assignments/${encodeURIComponent(
         assignmentId
       )}/reset-expiration`,
-      body: { expires_at: expiresAt },
+      body: { expires_at: expiresAt ?? null },
     });
     return assinafyFormat.assignment({ assignment, documentId: document.id });
   },

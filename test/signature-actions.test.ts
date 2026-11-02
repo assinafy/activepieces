@@ -527,6 +527,20 @@ describe('Update Signing Deadline', () => {
     });
   });
 
+  test('removes the assignment expiration when the deadline is empty', async () => {
+    replyData(apiDocument);
+    replyData({ ...apiAssignment, expires_at: null });
+    const result = await updateSigningDeadline.run(
+      context({ props: { document: 'doc_1', expires_at: '' } })
+    );
+    expect(result).toMatchObject({ expires_at: null });
+    expect(sentRequests()[1]).toMatchObject({
+      method: HttpMethod.PUT,
+      url: `${PRODUCTION}/documents/doc_1/assignments/asg_1/reset-expiration`,
+      body: { expires_at: null },
+    });
+  });
+
   test('validates the date before calling the API', async () => {
     await expect(
       updateSigningDeadline.run(

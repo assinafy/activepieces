@@ -44,6 +44,8 @@ const documentFields: OutputSchema['fields'] = [
   { key: 'tags', label: 'Tags' },
   { key: 'available_files', label: 'Available Files' },
   { key: 'signing_url', label: 'Signing Link', format: 'url' },
+  { key: 'verification_code', label: 'Verification Code' },
+  { key: 'verification_url', label: 'Verification Link', format: 'url' },
   { key: 'decline_reason', label: 'Decline Reason' },
   { key: 'declined_by_name', label: 'Declined By' },
   { key: 'declined_by_email', label: 'Declined By Email', format: 'email' },

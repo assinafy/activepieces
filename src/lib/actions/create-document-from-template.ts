@@ -273,8 +273,13 @@ export const createDocumentFromTemplate = createAction({
     assinafySigners.validateSigningOrder(
       requests.filter((_, index) => !isCopyReceiverRole(roles[index]))
     );
-    const hasPlacedFields = (template.pages ?? []).some(
-      (page) => (page.fields ?? []).length > 0
+    const signerRoleIds = new Set(
+      (template.roles ?? [])
+        .filter((role) => !isEditorRole(role) && !isCopyReceiverRole(role))
+        .map((role) => role.id)
+    );
+    const hasPlacedFields = (template.pages ?? []).some((page) =>
+      (page.fields ?? []).some((field) => signerRoleIds.has(field.role_id))
     );
     assinafySigners.validateAssignmentMethod({
       method: hasPlacedFields ? 'collect' : 'virtual',

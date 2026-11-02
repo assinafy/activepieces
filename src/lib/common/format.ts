@@ -15,6 +15,8 @@ function formatDocument(document: ApiDocument) {
     tags: joinNames(document.tags),
     available_files: availableFiles(document),
     signing_url: document.signing_url ?? null,
+    verification_code: document.verification_code ?? null,
+    verification_url: document.verification_url ?? null,
     decline_reason: document.decline_reason ?? null,
     declined_by_name: document.declined_by?.full_name ?? null,
     declined_by_email: document.declined_by?.email ?? null,
@@ -213,6 +215,8 @@ export type ApiDocument = {
   is_closed?: boolean;
   has_contract?: boolean;
   signing_url?: string;
+  verification_code?: string | null;
+  verification_url?: string | null;
   decline_reason?: string | null;
   declined_by?: ApiSigner | null;
   tags?: { id: string; name?: string }[];

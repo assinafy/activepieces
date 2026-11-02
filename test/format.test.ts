@@ -63,6 +63,8 @@ describe('formatDocument', () => {
       tags: 'Contracts',
       available_files: 'original',
       signing_url: 'https://api.assinafy.com.br/v1/sign/doc_1',
+      verification_code: null,
+      verification_url: null,
       decline_reason: null,
       declined_by_name: null,
       declined_by_email: null,
@@ -91,6 +93,10 @@ describe('formatDocument', () => {
     expect(declined.status_label).toBe('Declined by a signer');
     expect(declined.declined_by_name).toBe('Maria Silva');
     expect(declined.declined_by_email).toBe('maria@example.com');
+    expect(declined.verification_code).toBe('verify_doc_2');
+    expect(declined.verification_url).toBe(
+      'https://www.assinafy.com.br/verificador/verify_doc_2'
+    );
   });
 
   test('keeps unknown values as null instead of inventing them', () => {
@@ -107,6 +113,8 @@ describe('formatDocument', () => {
       tags: null,
       available_files: null,
       signing_url: null,
+      verification_code: null,
+      verification_url: null,
       decline_reason: null,
       declined_by_name: null,
       declined_by_email: null,

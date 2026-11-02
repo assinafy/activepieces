@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+- Add the public verification code and verification link to document outputs and document webhook fields.
+- Allow Update Signing Deadline to remove an existing deadline when New Deadline is empty.
+- Allow ICP-Brasil certificate signers on templates whose placed fields belong only to Editor roles; placed signer fields still require a collect assignment and reject certificate signing.
+
 ## 0.2.3
 
 - Add Find Contracts, Get Contract, Get Related Contracts, Set Contract Terms, Renew Contract and Terminate Contract, including amendments, external references, field clearing and concurrent-change checks.
