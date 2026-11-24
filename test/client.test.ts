@@ -18,6 +18,13 @@ const createClient = assinafyApi.fromCredentials;
 const assinafyClient = assinafyApi.forAuth;
 
 describe('credentials', () => {
+  test('rejects a workspace dot segment before a request', async () => {
+    const client = createClient(
+      apiKeyCredentials({ api_key: 'k', account_id: '..' })
+    );
+    await expect(client.accountPath('/documents')).rejects.toThrow('valid ID');
+    expect(sendRequest).not.toHaveBeenCalled();
+  });
   test('an API key targets production by default and sends X-Api-Key', () => {
     expect(apiKeyCredentials({ api_key: 'k' })).toEqual({
       baseUrl: PRODUCTION,

@@ -19,6 +19,9 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('values', () => {
+  test.each(['.', '..', ' .. '])('rejects URL dot-segment IDs: %s', (id) => {
+    expect(() => assinafyValues.encodeId(id, 'Document')).toThrow('valid ID');
+  });
   test('toIsoTimestamp reads ISO text and Unix seconds or milliseconds', () => {
     expect(toIsoTimestamp(1788273130)).toBe('2026-09-01T14:32:10.000Z');
     expect(toIsoTimestamp(1788273130000)).toBe('2026-09-01T14:32:10.000Z');

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5
+
+- Add Create Envelope, Find Envelopes, Get Envelope, Cancel Envelope and Download Envelope, with shared signer, document, method and deadline validation.
+- Add Create Embed Session and optional embedded signing to signature requests and template roles; expose embedded state in signer outputs.
+- Match WhatsApp-only signers by their full name and phone number, and reject URL dot segments in resource IDs.
+- Describe paid signature methods using workspace pricing instead of fixed credit amounts.
+
 ## 0.2.4
 
 - Add the public verification code and verification link to document outputs and document webhook fields.

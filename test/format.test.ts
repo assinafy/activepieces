@@ -22,6 +22,7 @@ const expectedSigner = {
   notification_method: 'Email',
   identity_verification_status: null,
   signed: false,
+  embedded: null,
   signing_url:
     'https://api.assinafy.com.br/v1/sign/doc_1?email=maria@example.com',
 };
@@ -151,6 +152,7 @@ describe('formatDocument', () => {
       notification_method: null,
       identity_verification_status: null,
       signed: null,
+      embedded: null,
       signing_url: null,
     });
   });

@@ -4,6 +4,7 @@ import { assinafyAuth } from '../auth';
 import { AssinafyAuthValue, AssinafyClient, assinafyApi } from './client';
 import { assinafyConstants } from './constants';
 import { ApiDocument, ApiSigner, ApiTemplate, assinafyFormat } from './format';
+import { assinafyValues } from './values';
 
 async function loadOptions({
   auth,
@@ -160,7 +161,7 @@ function documentSignerDropdown(description: string) {
         load: async (client) => {
           const found = await client.request<ApiDocument>({
             method: HttpMethod.GET,
-            path: `/documents/${encodeURIComponent(String(document))}`,
+            path: `/documents/${assinafyValues.encodeId(String(document), 'Document')}`,
           });
           return (found.assignment?.signers ?? []).map((signer) => ({
             label: signerLabel(signer),
@@ -173,6 +174,11 @@ function documentSignerDropdown(description: string) {
 }
 
 export const assinafyProps = {
+  envelope: Property.ShortText({
+    displayName: 'Envelope ID',
+    description: 'Map the ID returned by Create Envelope or Find Envelopes.',
+    required: true,
+  }),
   document: documentDropdown,
   documentSigner: documentSignerDropdown,
   signer: signerDropdown,

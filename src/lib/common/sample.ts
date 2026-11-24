@@ -38,6 +38,7 @@ const SAMPLE_DOCUMENT = {
       notification_method: 'Email',
       identity_verification_status: null,
       signed: true,
+      embedded: false,
       signing_url: null,
     },
   ],

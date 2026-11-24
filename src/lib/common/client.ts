@@ -300,7 +300,7 @@ function fromCredentials(credentials: AssinafyCredentials) {
     workspace: () => resolveWorkspace(credentials),
     accountId: getAccountId,
     accountPath: async (suffix: string) =>
-      `/accounts/${encodeURIComponent(await getAccountId())}${suffix}`,
+      `/accounts/${assinafyValues.encodeId(await getAccountId(), 'Workspace')}${suffix}`,
     download: async (path: string) => {
       const response = await send<ArrayBuffer>({
         credentials,

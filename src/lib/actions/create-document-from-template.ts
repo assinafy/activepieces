@@ -72,6 +72,15 @@ function roleInputs(role: TemplateRole): [string, InputPropertyMap[string]][] {
   const roleName = role.name ?? role.id;
   return [
     [
+      `embedded_${role.id}`,
+      Property.Checkbox({
+        displayName: `${roleName}: Embedded Signing`,
+        description:
+          'Sign inside your application using Create Embed Session. Requires the Embed feature, an allowed origin and Email or WhatsApp verification. Ignored for copy receivers.',
+        required: false,
+      }),
+    ],
+    [
       `email_${role.id}`,
       Property.ShortText({
         displayName: `${roleName}: Email`,
@@ -257,6 +266,9 @@ export const createDocumentFromTemplate = createAction({
         whatsapp: read(`whatsapp_${role.id}`),
         fullName: read(`name_${role.id}`),
         governmentId: read(`cpf_${role.id}`),
+        embedded: isCopyReceiverRole(role)
+          ? undefined
+          : roleValues[`embedded_${role.id}`],
         verification: isCopyReceiverRole(role)
           ? undefined
           : read(`verification_${role.id}`),

@@ -91,6 +91,12 @@ export const requestSignatures = createAction({
             'Optional. Signers with the same number sign in parallel; 2 is invited after everyone in 1 signs. If you use it, set it for every signer, starting at 1.',
           required: false,
         }),
+        embedded: Property.Checkbox({
+          displayName: 'Embedded Signing',
+          description:
+            'Sign inside your application using Create Embed Session. Requires the Embed feature, an allowed origin and Email or WhatsApp verification.',
+          required: false,
+        }),
       },
     }),
     message: Property.LongText({
@@ -146,6 +152,7 @@ export const requestSignatures = createAction({
         }),
         verification: 'email',
         step: undefined,
+        embedded: undefined,
       })
     );
     assinafySigners.validateContacts([...signerRequests, ...copyRequests]);

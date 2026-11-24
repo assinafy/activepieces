@@ -1,6 +1,6 @@
 # Assinafy for Activepieces
 
-`@assinafy/piece-assinafy` connects [Activepieces](https://www.activepieces.com) to [Assinafy](https://www.assinafy.com.br) for PDF upload, template generation, email/WhatsApp invitations, biometric identity verification, ICP-Brasil A1/A3 certificate signatures, contract lifecycle management, signed-file download and webhooks. The authoritative API reference is [api.assinafy.com.br/v1/docs](https://api.assinafy.com.br/v1/docs).
+`@assinafy/piece-assinafy` connects [Activepieces](https://www.activepieces.com) to [Assinafy](https://www.assinafy.com.br) for PDF upload, template generation, email/WhatsApp invitations, biometric identity verification, ICP-Brasil A1/A3 certificate signatures, envelopes, embedded signing, contract lifecycle management, signed-file download and webhooks. The authoritative API reference is [api.assinafy.com.br/v1/docs](https://api.assinafy.com.br/v1/docs).
 
 ## Install and connect
 
@@ -25,9 +25,9 @@ OAuth requests `documents:read documents:write templates:read templates:write ac
 | Piece value | API verification | Notification | Requirements |
 |---|---|---|---|
 | `email` | `Email` | `Email` | Email; free verification |
-| `whatsapp` | `Whatsapp` | `Whatsapp` | WhatsApp; paid-plan channel, 0.45 credit |
-| `certificate_email` | `DigitalCertificate` | `Email` | ICP-Brasil A1/A3, saved CPF/CNPJ, feature enabled, 0.5 credit |
-| `certificate_whatsapp` | `DigitalCertificate` | `Whatsapp` | Same plus WhatsApp; 0.95 credit total |
+| `whatsapp` | `Whatsapp` | `Whatsapp` | WhatsApp; paid-plan channel; workspace pricing |
+| `certificate_email` | `DigitalCertificate` | `Email` | ICP-Brasil A1/A3, saved CPF/CNPJ, feature enabled; workspace pricing |
+| `certificate_whatsapp` | `DigitalCertificate` | `Whatsapp` | Same plus WhatsApp; workspace pricing |
 | `biometric_email` | `IdDocumentFaceMatchBasic` | `Email` | Saved CPF and ID Document + Face Match feature |
 | `biometric_whatsapp` | `IdDocumentFaceMatchBasic` | `Whatsapp` | Same plus paid WhatsApp channel |
 
@@ -40,8 +40,8 @@ Property keys below are the keys used for mapping. Paths are relative to the `/v
 | Action | Inputs | Assinafy request |
 |---|---|---|
 | Upload Document | `file`, `name?` | `POST /accounts/{accountId}/documents`; multipart `file` containing PDF bytes and filename, max 25 MB |
-| Request Signatures | `document`, `signers[]`, `message?`, `expires_at?`, `copy_receivers[]?` | `POST /documents/{documentId}/assignments`; `{"method":"virtual","signers":[{"id":"…","verification_method":"Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic","notification_methods":["Email|Whatsapp"],"step":1}],"message":"…","expires_at":"ISO-8601","copy_receivers":["signer-id"]}` |
-| Create Document from Template | `template`, dynamic `email/whatsapp/name/cpf/verification/step_{roleId}`, `field_{fieldId}`, `document_name?`, `message?`, `expires_at?`, `tags[]?` | `POST /accounts/{accountId}/templates/{templateId}/documents`; `{"signers":[{"role_id":"…","id":"…","verification_method":"…","notification_methods":["…"],"step":1}],"editor_fields":[{"field_id":"…","value":"…"}],"name":"…","message":"…","expires_at":"ISO-8601","tags":["…"]}` |
+| Request Signatures | `document`, `signers[]`, `message?`, `expires_at?`, `copy_receivers[]?` | `POST /documents/{documentId}/assignments`; `{"method":"virtual","signers":[{"id":"…","verification_method":"Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic","notification_methods":["Email|Whatsapp"],"step":1,"embedded":false}],"message":"…","expires_at":"ISO-8601","copy_receivers":["signer-id"]}` |
+| Create Document from Template | `template`, dynamic `email/whatsapp/name/cpf/verification/step/embedded_{roleId}`, `field_{fieldId}`, `document_name?`, `message?`, `expires_at?`, `tags[]?` | `POST /accounts/{accountId}/templates/{templateId}/documents`; `{"signers":[{"role_id":"…","id":"…","verification_method":"…","notification_methods":["…"],"step":1,"embedded":false}],"editor_fields":[{"field_id":"…","value":"…"}],"name":"…","message":"…","expires_at":"ISO-8601","tags":["…"]}` |
 | Get Document | `document` | `GET /documents/{documentId}` |
 | Find Documents | `search?`, `status?`, `limit?` | paginated `GET /accounts/{accountId}/documents?search=…&status=…&sort=-updated_at` |
 | Download Document | `document`, `file_type`, `file_name?` | `GET /documents/{documentId}/download/{original|certificated|certificate-page|bundle|pades}`; binary response, HTTPS redirects only |
@@ -57,7 +57,15 @@ Property keys below are the keys used for mapping. Paths are relative to the `/v
 | Set Contract Terms | `document`, `terms` | `PUT /accounts/{accountId}/documents/{documentId}/contract`; body is the validated `terms` object below |
 | Renew Contract | `document`, `renewal` | `POST /accounts/{accountId}/documents/{documentId}/contract/renew`; `{"term":1,"end_date":"YYYY-MM-DD","value":0|null,"updated_at":"ISO-8601"}`; `term` or `end_date` is required |
 | Terminate Contract | `document`, `reason?`, `updated_at?` | `POST /accounts/{accountId}/documents/{documentId}/contract/terminate`; `{"reason":"…"|null,"updated_at":"ISO-8601"}` |
+| Create Envelope | `envelope` JSON | `POST /accounts/{accountId}/envelopes`; validated `EnvelopeInput` below; existing signer IDs and processed documents required |
+| Find Envelopes | `search?`, `status?` (`open` or `closed`), `limit?` | paginated `GET /accounts/{accountId}/envelopes`; name search, newest first |
+| Get Envelope | `envelope` ID | `GET /accounts/{accountId}/envelopes/{envelopeId}` |
+| Cancel Envelope | `envelope` ID | `PUT /accounts/{accountId}/envelopes/{envelopeId}/cancel`; no body; notifies recipients of documents it cancels |
+| Download Envelope | `envelope` ID, `file_type`, `file_name?` | `GET /accounts/{accountId}/envelopes/{envelopeId}/download/{artifactName}`; ZIP containing documents with the requested artifact |
+| Create Embed Session | `document`, `signer` | `GET /documents/{documentId}`, then `POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/embed-sessions`; no body |
 | Custom API Call | framework method/URL/query/headers/body, `followRedirects=false` | Any Assinafy path. Credentials are rejected for off-origin URLs; certificate assignments are preflighted. Returns raw `{status,headers,body}`. |
+
+Request Signatures rows use `{full_name?,email?,whatsapp?,government_id?,verification?,step?,embedded?}`; copy-recipient rows use `{email,full_name?}`. Template role keys belong in `signers`, and `field_{fieldId}` keys belong in `editor_fields`.
 
 Deadlines must be at least one hour ahead. `YYYY-MM-DD` means 23:59 UTC; unzoned datetimes mean UTC. Limits are integers 1–100. Uploads are PDF, max 2,000 pages. Update Signer leaves empty fields unchanged; use Custom API Call with an explicit `null` where the API permits clearing.
 
@@ -75,7 +83,7 @@ API Signer = {resource,id,full_name,email,whatsapp_phone_number,government_id,ha
 The complete flattened document output used by Upload/Create/Get/Find, Document Signed, and `document_*` webhook fields is:
 
 ```text
-{id,name,status,status_label,is_closed,has_contract,account_id,template_id,page_count,tags,available_files,signing_url,verification_code,verification_url,decline_reason,declined_by_name,declined_by_email,created_at,updated_at,assignment_id,signature_method,expires_at,signer_count,signed_count,signer_emails,signers:[{id,full_name,email,whatsapp_phone_number,step,verification_method,notification_method,identity_verification_status,signed,signing_url}]}
+{id,name,status,status_label,is_closed,has_contract,account_id,template_id,page_count,tags,available_files,signing_url,verification_code,verification_url,decline_reason,declined_by_name,declined_by_email,created_at,updated_at,assignment_id,signature_method,expires_at,signer_count,signed_count,signer_emails,signers:[{id,full_name,email,whatsapp_phone_number,step,verification_method,notification_method,identity_verification_status,signed,signing_url,embedded}]}
 ```
 
 Other complete piece outputs:
@@ -94,6 +102,38 @@ Contract = {resource,document_id,status,counterparty_name,counterparty_taxpayer_
 Amendment = {resource,document_id,document_name,parent_document_id,relation_type,number,status,document_status,apply_error,currency,terms,changes,applied_at,created_at,updated_at}
 terms input = {status?,counterparty_name?,counterparty_taxpayer_id?,value?,currency?,start_date?,end_date?,auto_renew?,renewal_term_months?,notice_period_days?,owner_id?,metadata?,external_references?,parent_document_id?,relation_type?,updated_at?}; explicit null clears API-supported fields.
 ```
+
+## Envelopes and embedded signing
+
+Envelope flow: upload each PDF → wait with **Get Document** until every status is `metadata_ready` with no assignment → **Find/Create Signer** → **Create Envelope** → store its `id` and document IDs. Collect each `document_ready` event separately. **Get Envelope** reports counts per document status; **Download Envelope** can return a partial archive while other documents are still unsigned. **Cancel Envelope** cancels only cancellable documents; certified or fully signed documents remain intact.
+
+Embedded flow: configure an allowed origin in Assinafy → set `embedded: true` on a Request Signatures row, `embedded_{roleId}: true` on a template role, or an envelope signer → **Create Embed Session** when the recipient opens your app → load `url` in an iframe within five minutes. Each URL is single-use. Email/WhatsApp verification and the normal invitation still apply; certificates and biometrics cannot be embedded. The signer access code is exchanged only by Assinafy's embed page. Origin management requires an API key; session creation supports OAuth with `documents:write`. An absent signing-URL entry leaves the flattened `embedded` field null, including signers whose turn has not started.
+
+```text
+EnvelopeInput = {name, message?:string|null, max_total_credits?:number>=0, signers:[{id,verification_method?:Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic,notification_methods?:[Email|Whatsapp],embedded?:boolean}], documents:[EnvelopeDocumentInput]}
+EnvelopeDocumentInput = {id, signer_ids:[id], method?:virtual|collect, entries?:[{page_id,fields:[{signer_id,field_id,display_settings:{left,top,width,height,fontSize,fontFamily?,backgroundColor?}}]}], expires_at?:ISO-string|null, copy_receiver_ids?:[id]}
+Envelope = {resource?,id,name,message,documents:[{id,position,name,status,artifacts:{artifactName:url},signers:[{id,full_name,email,whatsapp_phone_number,completed,signed_at}]}],counts:{status:count}|null,signing_urls:[{signer_id,url:string|null,embedded:boolean}],created_at}
+Cancel Envelope = [{id,status,cancelled:boolean}]
+Download Envelope = {file,file_name,file_type,size_bytes,envelope_id}
+Create Embed Session = {url,expires_at}
+CostEstimate = {documents,credits,needs_extra_document,extra_document_cost,total_credits,breakdown:[{code,name,cost,quantity,unit_cost}],document_balance,credit_balance,has_sufficient_resources,blocking_reason,message}
+DocumentActivity = {id,event,message,payload:object|array|null,origin:{ip,"user-agent"}|null,created_at}
+```
+
+Creation accepts 1–20 unique documents and 1–20 unique signers, with every signer assigned to a document. No signing steps: everyone starts together. Certificate signers must be alone on each virtual document. Collect fields must cover exactly that document's signers; geometry is in 150-DPI page pixels and must fit inside the page. Embedded signing and envelopes require their respective plan features. Use the cost estimate and optional `max_total_credits` ceiling for workspace pricing; an accepted request does not guarantee notification delivery. Read each document's `assignment.signers[].notification_history` through Custom API Call for delivery results.
+
+Additional operations use **Custom API Call**, with `followRedirects=false` and the workspace ID in the path. `E` below is `/accounts/{accountId}/envelopes`, `O` is `/accounts/{accountId}/embed-origins`; responses retain `{status,headers,body:{status,message,data}}`.
+
+| Operation | Method/path and complete body | `data` |
+|---|---|---|
+| Estimate envelope | `POST E/estimate-cost`, `EnvelopeInput` | `CostEstimate`; no send or charge |
+| Rename/reorder | `PATCH E/{id}`, `{name?,message?:string|null,document_ids?:[every-current-document-id]}` | `Envelope` |
+| Add document | `POST E/{id}/documents`, `EnvelopeDocumentInput` plus optional `max_total_credits` | `Envelope`; existing envelope signers only |
+| Remove document | `DELETE E/{id}/documents/{documentId}`, no body | `Envelope`; removed document is cancelled |
+| Remind signer | `PUT E/{id}/signers/{signerId}/resend`, no body | `{is_sent,envelope_id,signer_id}` |
+| Activities | `GET E/{id}/activities?page=1&per-page=50`, no body | `[DocumentActivity + {document_id,document_name}]` |
+| Delete envelope | `DELETE E/{id}`, no body, only after all documents close | `[]`; documents are retained |
+| Allowed origins | `GET O`; `POST O` or `PUT O/{originId}` with `{origin:"https://app.example.com"}`; `DELETE O/{originId}` | list/object `{id,origin,created_at}`; deletion `[]` |
 
 ## Triggers and webhook payloads
 

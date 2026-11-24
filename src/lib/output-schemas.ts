@@ -14,6 +14,7 @@ const assignmentSignerFields: OutputSchema['fields'] = [
   },
   { key: 'signed', label: 'Signed', format: 'boolean' },
   { key: 'signing_url', label: 'Signing Link', format: 'url' },
+  { key: 'embedded', label: 'Embedded Signing', format: 'boolean' },
 ];
 
 const assignmentSummaryFields: OutputSchema['fields'] = [
@@ -60,6 +61,44 @@ const signerFields: OutputSchema['fields'] = [
   { key: 'email', label: 'Email', format: 'email' },
   { key: 'whatsapp_phone_number', label: 'WhatsApp Number' },
   { key: 'has_accepted_terms', label: 'Accepted Terms', format: 'boolean' },
+];
+
+const envelopeFields: OutputSchema['fields'] = [
+  { key: 'resource', label: 'Resource Type' },
+  { key: 'id', label: 'Envelope ID' },
+  { key: 'name', label: 'Name' },
+  { key: 'message', label: 'Message' },
+  {
+    key: 'documents',
+    label: 'Documents',
+    listItems: [
+      { key: 'id', label: 'Document ID' },
+      { key: 'position', label: 'Position', format: 'number' },
+      { key: 'name', label: 'Name' },
+      { key: 'status', label: 'Status' },
+      { key: 'artifacts', label: 'Artifacts' },
+      {
+        key: 'signers',
+        label: 'Signers',
+        listItems: [
+          ...signerFields.filter((field) => field.key !== 'has_accepted_terms'),
+          { key: 'completed', label: 'Signed', format: 'boolean' },
+          { key: 'signed_at', label: 'Signed At', format: 'datetime' },
+        ],
+      },
+    ],
+  },
+  { key: 'counts', label: 'Document Counts by Status' },
+  {
+    key: 'signing_urls',
+    label: 'Signing Links',
+    listItems: [
+      { key: 'signer_id', label: 'Signer ID' },
+      { key: 'url', label: 'Signing Link', format: 'url' },
+      { key: 'embedded', label: 'Embedded Signing', format: 'boolean' },
+    ],
+  },
+  { key: 'created_at', label: 'Created At', format: 'datetime' },
 ];
 
 const amendmentFields: OutputSchema['fields'] = [
@@ -384,6 +423,47 @@ const eventFields: OutputSchema['fields'] = [
 ];
 
 export const assinafyOutputSchemas = {
+  envelope: { fields: envelopeFields },
+  envelopeList: {
+    itemLabel: '{name}',
+    fields: [
+      {
+        key: 'envelopes',
+        label: 'Envelopes',
+        value: '',
+        listItems: envelopeFields,
+      },
+    ],
+  },
+  envelopeCancellation: {
+    fields: [
+      {
+        key: 'documents',
+        label: 'Documents',
+        value: '',
+        listItems: [
+          { key: 'id', label: 'Document ID' },
+          { key: 'status', label: 'Status' },
+          { key: 'cancelled', label: 'Cancelled', format: 'boolean' },
+        ],
+      },
+    ],
+  },
+  envelopeDownload: {
+    fields: [
+      { key: 'file', label: 'File', format: 'url' },
+      { key: 'file_name', label: 'File Name' },
+      { key: 'file_type', label: 'File Type' },
+      { key: 'size_bytes', label: 'Size', format: 'filesize' },
+      { key: 'envelope_id', label: 'Envelope ID' },
+    ],
+  },
+  embedSession: {
+    fields: [
+      { key: 'url', label: 'Embed URL', format: 'url' },
+      { key: 'expires_at', label: 'Expires At', format: 'datetime' },
+    ],
+  },
   event: {
     fields: [
       ...eventFields,

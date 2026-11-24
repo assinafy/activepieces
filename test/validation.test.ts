@@ -26,6 +26,11 @@ test('rejects invalid mapped inputs before network mutations', async () => {
   await expect(
     deleteDocument.run(context({ props: { document: ' ' } }))
   ).rejects.toThrow('Document ID is required');
+  for (const document of ['.', '..']) {
+    await expect(
+      deleteDocument.run(context({ props: { document } }))
+    ).rejects.toThrow('valid ID');
+  }
   await expect(
     createSigner.run(context({ props: { full_name: ' ' } }))
   ).rejects.toThrow('Full Name is required');

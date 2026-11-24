@@ -18,6 +18,9 @@ function encodeId(value: string, label: string): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${label} ID is required. Select an item or map its ID.`);
   }
+  if (value.trim() === '.' || value.trim() === '..') {
+    throw new Error(`${label} must have a valid ID, not a URL dot segment.`);
+  }
   return encodeURIComponent(value.trim());
 }
 

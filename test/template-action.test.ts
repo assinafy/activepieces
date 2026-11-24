@@ -39,6 +39,7 @@ describe('Create Document from Template form', () => {
       ctx
     );
     expect(Object.keys(props)).toEqual([
+      'embedded_role_client',
       'email_role_client',
       'whatsapp_role_client',
       'name_role_client',
@@ -92,7 +93,7 @@ describe('Create Document from Template form', () => {
       { auth: apiKeyAuth as never, template: 'tpl_1' },
       ctx
     );
-    expect(Object.keys(props)).toHaveLength(6);
+    expect(Object.keys(props)).toHaveLength(7);
     expect(sentRequests()[1].queryParams).toEqual({
       page: '2',
       'per-page': '50',
@@ -467,6 +468,7 @@ describe('Create Document from Template', () => {
       {
         ...apiSigner,
         id: 'sig_w',
+        full_name: 'João',
         email: null,
         whatsapp_phone_number: '+5548999990000',
       },

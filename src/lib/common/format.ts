@@ -44,10 +44,7 @@ function formatAssignment({
 function formatAssignmentSummary(assignment: ApiAssignment | null | undefined) {
   const signers = assignment?.signers ?? [];
   const signingUrls = new Map(
-    (assignment?.signing_urls ?? []).map((entry) => [
-      entry.signer_id,
-      entry.url,
-    ])
+    (assignment?.signing_urls ?? []).map((entry) => [entry.signer_id, entry])
   );
   return {
     assignment_id: assignment?.id ?? null,
@@ -68,7 +65,8 @@ function formatAssignmentSummary(assignment: ApiAssignment | null | undefined) {
       notification_method: signer.notification_methods?.[0] ?? null,
       identity_verification_status: signer.identity_verification_status ?? null,
       signed: signer.completed ?? null,
-      signing_url: signingUrls.get(signer.id) ?? null,
+      signing_url: signingUrls.get(signer.id)?.url ?? null,
+      embedded: signingUrls.get(signer.id)?.embedded ?? null,
     })),
   };
 }
@@ -201,7 +199,11 @@ export type ApiAssignment = {
     completed?: boolean | null;
   })[];
   summary?: { signer_count?: number; completed_count?: number };
-  signing_urls?: { signer_id: string; url: string }[];
+  signing_urls?: {
+    signer_id: string;
+    url: string | null;
+    embedded?: boolean;
+  }[];
   copy_receivers?: unknown[];
 };
 

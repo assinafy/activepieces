@@ -381,6 +381,31 @@ describe('resolve', () => {
     });
   });
 
+  test('does not reuse a partial-name match sharing the same WhatsApp number', async () => {
+    replyData([
+      {
+        ...apiSigner,
+        id: 'wrong',
+        full_name: 'Maria Silva Junior',
+        email: null,
+        whatsapp_phone_number: '+5548999990000',
+      },
+      {
+        ...apiSigner,
+        id: 'right',
+        full_name: ' Maria Silva ',
+        email: null,
+        whatsapp_phone_number: '+5548999990000',
+      },
+    ]);
+    const signer = await resolve({
+      fullName: 'maria silva',
+      whatsapp: '+5548999990000',
+    });
+    expect(signer.id).toBe('right');
+    expect(sentRequests()).toHaveLength(1);
+  });
+
   test('searches further pages for common names and stops when pages repeat', async () => {
     const fullPage = Array.from({ length: 50 }, (_, index) => ({
       ...apiSigner,

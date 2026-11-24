@@ -25,6 +25,7 @@ function requestFromRow({
     whatsapp: read('whatsapp'),
     governmentId: read('government_id'),
     verification: read('verification'),
+    embedded: row['embedded'],
     step: assinafyValues.readStep({ record: row, key: 'step', label }),
   };
 }
@@ -50,6 +51,20 @@ function validateContacts(requests: SignerRequest[]): void {
       );
     }
     const method = methodFor(request);
+    if (
+      request.embedded !== undefined &&
+      typeof request.embedded !== 'boolean'
+    ) {
+      throw new Error(`${label}: Embedded Signing must be true or false.`);
+    }
+    if (
+      request.embedded &&
+      !['Email', 'Whatsapp'].includes(method.verification_method)
+    ) {
+      throw new Error(
+        `${label}: embedded signing requires Email or WhatsApp verification.`
+      );
+    }
     if (method.notification_method === 'Email' && !email) {
       throw new Error(
         `${label}: the chosen verification sends the invitation by email, so an email address is required.`
@@ -164,7 +179,9 @@ async function findSigner({
   const matches = (signer: ApiSigner) =>
     email
       ? signer.email?.toLowerCase() === email
-      : assinafyValues.sameWhatsapp({
+      : signer.full_name?.trim().toLowerCase() ===
+          request.fullName?.trim().toLowerCase() &&
+        assinafyValues.sameWhatsapp({
           stored: signer.whatsapp_phone_number,
           given: request.whatsapp,
         });
@@ -342,7 +359,10 @@ function assignmentFields(request: SignerRequest) {
   return {
     verification_method: method.verification_method,
     notification_methods: [method.notification_method],
-    ...assinafyValues.compact({ step: request.step }),
+    ...assinafyValues.compact({
+      step: request.step,
+      embedded: request.embedded,
+    }),
   };
 }
 
@@ -364,6 +384,7 @@ export type SignerRequest = {
   whatsapp?: string;
   governmentId?: string;
   verification?: string;
+  embedded?: unknown;
   step?: number;
 };
 

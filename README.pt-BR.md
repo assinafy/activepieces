@@ -25,9 +25,9 @@ O OAuth solicita `documents:read documents:write templates:read templates:write 
 | Valor da piece | Verificação da API | Notificação | Requisitos |
 |---|---|---|---|
 | `email` | `Email` | `Email` | E-mail; verificação gratuita |
-| `whatsapp` | `Whatsapp` | `Whatsapp` | WhatsApp; canal de plano pago, 0,45 crédito |
-| `certificate_email` | `DigitalCertificate` | `Email` | ICP-Brasil A1/A3, CPF/CNPJ salvo, recurso ativo, 0,5 crédito |
-| `certificate_whatsapp` | `DigitalCertificate` | `Whatsapp` | O mesmo mais WhatsApp; 0,95 crédito total |
+| `whatsapp` | `Whatsapp` | `Whatsapp` | WhatsApp; canal de plano pago, preço do workspace |
+| `certificate_email` | `DigitalCertificate` | `Email` | ICP-Brasil A1/A3, CPF/CNPJ salvo, recurso ativo, preço do workspace |
+| `certificate_whatsapp` | `DigitalCertificate` | `Whatsapp` | O mesmo mais WhatsApp; preço do workspace total |
 | `biometric_email` | `IdDocumentFaceMatchBasic` | `Email` | CPF salvo e recurso ID Document + Face Match |
 | `biometric_whatsapp` | `IdDocumentFaceMatchBasic` | `Whatsapp` | O mesmo mais o canal pago de WhatsApp |
 
@@ -40,8 +40,8 @@ As chaves abaixo são usadas no mapeamento. Os caminhos são relativos à URL-ba
 | Ação | Entradas | Requisição para a Assinafy |
 |---|---|---|
 | Upload Document | `file`, `name?` | `POST /accounts/{accountId}/documents`; multipart `file` com bytes e nome do PDF, máximo 25 MB |
-| Request Signatures | `document`, `signers[]`, `message?`, `expires_at?`, `copy_receivers[]?` | `POST /documents/{documentId}/assignments`; `{"method":"virtual","signers":[{"id":"…","verification_method":"Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic","notification_methods":["Email|Whatsapp"],"step":1}],"message":"…","expires_at":"ISO-8601","copy_receivers":["signer-id"]}` |
-| Create Document from Template | `template`, `email/whatsapp/name/cpf/verification/step_{roleId}`, `field_{fieldId}`, `document_name?`, `message?`, `expires_at?`, `tags[]?` | `POST /accounts/{accountId}/templates/{templateId}/documents`; `{"signers":[{"role_id":"…","id":"…","verification_method":"…","notification_methods":["…"],"step":1}],"editor_fields":[{"field_id":"…","value":"…"}],"name":"…","message":"…","expires_at":"ISO-8601","tags":["…"]}` |
+| Request Signatures | `document`, `signers[]`, `message?`, `expires_at?`, `copy_receivers[]?` | `POST /documents/{documentId}/assignments`; `{"method":"virtual","signers":[{"id":"…","verification_method":"Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic","notification_methods":["Email|Whatsapp"],"step":1,"embedded":false}],"message":"…","expires_at":"ISO-8601","copy_receivers":["signer-id"]}` |
+| Create Document from Template | `template`, `email/whatsapp/name/cpf/verification/step/embedded_{roleId}`, `field_{fieldId}`, `document_name?`, `message?`, `expires_at?`, `tags[]?` | `POST /accounts/{accountId}/templates/{templateId}/documents`; `{"signers":[{"role_id":"…","id":"…","verification_method":"…","notification_methods":["…"],"step":1,"embedded":false}],"editor_fields":[{"field_id":"…","value":"…"}],"name":"…","message":"…","expires_at":"ISO-8601","tags":["…"]}` |
 | Get Document | `document` | `GET /documents/{documentId}` |
 | Find Documents | `search?`, `status?`, `limit?` | `GET /accounts/{accountId}/documents?search=…&status=…&sort=-updated_at`, paginado |
 | Download Document | `document`, `file_type`, `file_name?` | `GET /documents/{documentId}/download/{original|certificated|certificate-page|bundle|pades}`; resposta binária, somente redirecionamentos HTTPS |
@@ -59,6 +59,8 @@ As chaves abaixo são usadas no mapeamento. Os caminhos são relativos à URL-ba
 | Terminate Contract | `document`, `reason?`, `updated_at?` | `POST /accounts/{accountId}/documents/{documentId}/contract/terminate`; `{"reason":"…"|null,"updated_at":"ISO-8601"}` |
 | Custom API Call | método/URL/query/headers/body do framework, `followRedirects=false` | Qualquer caminho da Assinafy. Credenciais são recusadas para outra origem; assignments com certificado são pré-validadas. Retorna `{status,headers,body}` bruto. |
 
+Linhas de Request Signatures usam `{full_name?,email?,whatsapp?,government_id?,verification?,step?,embedded?}`; destinatários de cópia usam `{email,full_name?}`. Chaves dos papéis do template ficam em `signers`, e `field_{fieldId}` em `editor_fields`.
+
 Prazos devem estar ao menos uma hora no futuro. `YYYY-MM-DD` significa 23:59 UTC; data/hora sem fuso usa UTC. Limites são inteiros 1–100. PDFs têm no máximo 2.000 páginas. Update Signer mantém campos vazios; use Custom API Call com `null` explícito onde a API permitir limpar.
 
 ## Contratos completos de resposta
@@ -75,7 +77,7 @@ API Signer = {resource,id,full_name,email,whatsapp_phone_number,government_id,ha
 Saída completa e achatada de documento usada por Upload/Create/Get/Find, Document Signed e campos `document_*` do webhook:
 
 ```text
-{id,name,status,status_label,is_closed,has_contract,account_id,template_id,page_count,tags,available_files,signing_url,verification_code,verification_url,decline_reason,declined_by_name,declined_by_email,created_at,updated_at,assignment_id,signature_method,expires_at,signer_count,signed_count,signer_emails,signers:[{id,full_name,email,whatsapp_phone_number,step,verification_method,notification_method,identity_verification_status,signed,signing_url}]}
+{id,name,status,status_label,is_closed,has_contract,account_id,template_id,page_count,tags,available_files,signing_url,verification_code,verification_url,decline_reason,declined_by_name,declined_by_email,created_at,updated_at,assignment_id,signature_method,expires_at,signer_count,signed_count,signer_emails,signers:[{id,full_name,email,whatsapp_phone_number,step,verification_method,notification_method,identity_verification_status,signed,signing_url,embedded}]}
 ```
 
 Outras saídas completas da piece:
@@ -94,6 +96,31 @@ Contract = {resource,document_id,status,counterparty_name,counterparty_taxpayer_
 Amendment = {resource,document_id,document_name,parent_document_id,relation_type,number,status,document_status,apply_error,currency,terms,changes,applied_at,created_at,updated_at}
 terms = {status?,counterparty_name?,counterparty_taxpayer_id?,value?,currency?,start_date?,end_date?,auto_renew?,renewal_term_months?,notice_period_days?,owner_id?,metadata?,external_references?,parent_document_id?,relation_type?,updated_at?}; null explícito limpa campos aceitos pela API.
 ```
+
+## Envelopes e assinatura incorporada
+
+Envie cada PDF e aguarde `metadata_ready`, sem assignment. Resolva os signatários com Find/Create Signer e use **Create Envelope**. Armazene o ID do envelope e de cada documento; cada `document_ready` continua individual. **Get Envelope** retorna contagens por status. **Download Envelope** pode conter só os documentos já certificados. **Cancel Envelope** notifica destinatários e cancela apenas os documentos ainda canceláveis.
+
+Para incorporar a assinatura: configure uma origem permitida → envie `embedded: true` na linha do signatário ou `embedded_{roleId}: true` no template → **Create Embed Session** quando o destinatário abrir sua aplicação → carregue `url` num iframe em até cinco minutos. Cada URL funciona uma vez. Exige a funcionalidade Embed e verificação Email/Whatsapp; biometria e certificado não são compatíveis. O convite e a verificação continuam necessários. A gestão de origens exige chave de API; criar sessões aceita OAuth com `documents:write`. A saída `embedded` é null quando não há entrada do signatário em `signing_urls`.
+
+| Ação | Entradas | Requisição/saída |
+|---|---|---|
+| Create Envelope | `envelope` JSON | `POST /accounts/{accountId}/envelopes` → `Envelope` |
+| Find Envelopes | `search?`, `status?:open|closed`, `limit?:1–100` | `GET /accounts/{accountId}/envelopes` paginado → `[Envelope]` |
+| Get Envelope | `envelope` ID | `GET /accounts/{accountId}/envelopes/{id}` → `Envelope` |
+| Cancel Envelope | `envelope` ID | `PUT /accounts/{accountId}/envelopes/{id}/cancel` → `[{id,status,cancelled}]` |
+| Download Envelope | `envelope` ID, `file_type`, `file_name?` | `GET /accounts/{accountId}/envelopes/{id}/download/{artifactName}` → `{file,file_name,file_type,size_bytes,envelope_id}` |
+| Create Embed Session | `document`, `signer` | Lê o documento e faz `POST /documents/{documentId}/assignments/{assignmentId}/signers/{signerId}/embed-sessions` → `{url,expires_at}` |
+
+```text
+EnvelopeInput = {name,message?:string|null,max_total_credits?:number>=0,signers:[{id,verification_method?:Email|Whatsapp|DigitalCertificate|IdDocumentFaceMatchBasic,notification_methods?:[Email|Whatsapp],embedded?:boolean}],documents:[EnvelopeDocumentInput]}
+EnvelopeDocumentInput = {id,signer_ids:[id],method?:virtual|collect,entries?:[{page_id,fields:[{signer_id,field_id,display_settings:{left,top,width,height,fontSize,fontFamily?,backgroundColor?}}]}],expires_at?:ISO-string|null,copy_receiver_ids?:[id]}
+Envelope = {resource?,id,name,message,documents:[{id,position,name,status,artifacts:{artifactName:url},signers:[{id,full_name,email,whatsapp_phone_number,completed,signed_at}]}],counts:{status:count}|null,signing_urls:[{signer_id,url:string|null,embedded:boolean}],created_at}
+```
+
+São 1–20 documentos e 1–20 signatários únicos, todos associados a algum documento; não há etapas. Certificado exige um signatário sozinho por documento virtual. Campos collect pertencem exatamente aos signatários do documento, em coordenadas de página a 150 DPI. Envelopes exigem a funcionalidade no plano. Consulte estimativa e `max_total_credits`; custos variam por workspace. Consulte `assignment.signers[].notification_history` por Custom API Call para confirmar entrega.
+
+Estimativa, alteração da ordem/nome/mensagem, adição/remoção de documentos, lembretes, atividades, exclusão de envelope fechado e gestão de origens usam **Custom API Call**. Os caminhos, corpos e respostas completos estão na [referência de operações adicionais](README.md#envelopes-and-embedded-signing). Desative sempre `followRedirects`.
 
 ## Gatilhos e payloads de webhook
 

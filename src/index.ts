@@ -1,6 +1,12 @@
 import { createPiece, PieceCategory } from '@activepieces/pieces-framework';
 import { createCustomApiCallAction } from '@activepieces/pieces-common';
 import { assinafyAuth } from './lib/auth';
+import { createEnvelope } from './lib/actions/create-envelope';
+import { findEnvelopes } from './lib/actions/find-envelopes';
+import { getEnvelope } from './lib/actions/get-envelope';
+import { cancelEnvelope } from './lib/actions/cancel-envelope';
+import { downloadEnvelope } from './lib/actions/download-envelope';
+import { createEmbedSession } from './lib/actions/create-embed-session';
 import { assinafyApi } from './lib/common/client';
 import { assinafySigners } from './lib/common/signers';
 import { assinafyValues } from './lib/common/values';
@@ -54,6 +60,12 @@ export const assinafy = createPiece({
     setContractTerms,
     renewContract,
     terminateContract,
+    createEnvelope,
+    findEnvelopes,
+    getEnvelope,
+    cancelEnvelope,
+    downloadEnvelope,
+    createEmbedSession,
     createCustomApiCallAction({
       auth: assinafyAuth,
       baseUrl: (auth) =>

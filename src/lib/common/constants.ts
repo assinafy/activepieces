@@ -51,21 +51,19 @@ const signerVerificationMethods: Record<
     certificate: false,
   },
   whatsapp: {
-    label: 'WhatsApp code (paid plans, 0.45 credit per signer)',
+    label: 'WhatsApp code (paid feature)',
     verification_method: 'Whatsapp',
     notification_method: 'Whatsapp',
     certificate: false,
   },
   certificate_email: {
-    label:
-      'ICP-Brasil digital certificate, invited by email (0.5 credit per signer)',
+    label: 'ICP-Brasil digital certificate, invited by email (paid feature)',
     verification_method: 'DigitalCertificate',
     notification_method: 'Email',
     certificate: true,
   },
   certificate_whatsapp: {
-    label:
-      'ICP-Brasil digital certificate, invited by WhatsApp (0.95 credit per signer)',
+    label: 'ICP-Brasil digital certificate, invited by WhatsApp (paid feature)',
     verification_method: 'DigitalCertificate',
     notification_method: 'Whatsapp',
     certificate: true,
